@@ -1,0 +1,147 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Reusable, Hardened Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true || 
+        request.auth.token.firebase.sign_in_provider == 'google.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Looks up administrative role profile in /usuarios collection
+    function getUserData() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.token.email)).data;
+    }
+
+    function hasAdminRole() {
+      return isSignedIn() && isEmailVerified() && (
+        request.auth.token.email == "admin@municipio.gov.br" ||
+        (exists(/databases/$(database)/documents/usuarios/$(request.auth.token.email)) && 
+         getUserData().perfil in ["admin", "prefeito", "Procurador"])
+      );
+    }
+
+    function hasPublicAgentRole() {
+      return isSignedIn() && isEmailVerified() && (
+        request.auth.token.email == "admin@municipio.gov.br" ||
+        request.auth.token.email == "lins@municipio.gov.br" ||
+        (exists(/databases/$(database)/documents/usuarios/$(request.auth.token.email)) && 
+         getUserData().perfil in ["admin", "prefeito", "Secretaria", "Procurador"])
+      );
+    }
+
+    // --- MANIFESTACOES (CHAMADOS COMUNITARIOS) ---
+    match /manifestacoes/{protocolo} {
+      allow read: if true; // Public list and details for accountability & transparent lookup
+
+      function isValidManifestacao(data) {
+        return data.protocolo is string && data.protocolo.size() <= 64 &&
+               data.tipo is string && data.tipo.size() <= 100 &&
+               data.descricao is string && data.descricao.size() <= 5000 &&
+               data.status is string && data.status.size() <= 50 &&
+               data.prioridade is string && data.prioridade.size() <= 50 &&
+               data.secretaria is string && data.secretaria.size() <= 100 &&
+               data.bairro is string && data.bairro.size() <= 100;
+      }
+
+      // Anonymous or signed-in citizens can submit a case. Force state to start in "Pendente" (or "Urgente" for Denúncias/Vereadores)
+      allow create: if isValidId(protocolo) && isValidManifestacao(incoming()) && 
+                    (incoming().status == "Pendente" || incoming().status == "Urgente");
+
+      // Only certified municipal agents can process statuses, assign responsible workers, and log dispatches
+      allow update: if (
+        hasPublicAgentRole() && 
+        isValidManifestacao(incoming()) && (
+          // Action: Despachar / Adicionar despacho e autorizar
+          incoming().diff(existing()).affectedKeys().hasOnly(['despacho', 'despacho_autor', 'status']) ||
+          // Action: Encaminhar aos responsáveis das secretarias
+          incoming().diff(existing()).affectedKeys().hasOnly(['responsavel_nome', 'responsavel_cargo', 'responsavel_email', 'status', 'secretaria']) ||
+          // Action: Atualizar Estado Geral (Ex: Pendente -> Em Andamento)
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'prioridade', 'destacado'])
+        )
+      );
+
+      // Protect deletion from normal contributors
+      allow delete: if hasAdminRole();
+    }
+
+    // --- USUARIOS DO SISTEMA (PERFIS DE AGENTES) ---
+    match /usuarios/{email} {
+      // Secure User PII: only the exact user themselves can read their profile, or municipal public agents
+      allow read: if isSignedIn() && (
+        request.auth.token.email.toLowerCase() == email.toLowerCase() || 
+        hasPublicAgentRole()
+      );
+      
+      // Separate rules for safe granular write actions:
+      // Allow administrators to write entire structures (create, delete, edit roles)
+      allow create, delete: if hasAdminRole();
+
+      allow update: if (
+        hasAdminRole() && 
+        incoming().email == email &&
+        incoming().nome is string && incoming().nome.size() <= 200 &&
+        incoming().perfil is string && incoming().perfil.size() <= 100
+      ) || (
+        isSignedIn() && 
+        request.auth.token.email.toLowerCase() == email.toLowerCase() &&
+        incoming().diff(existing()).affectedKeys().hasAny(['email_alternativo', 'termos_aceitos', 'termos_data_aceito']) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['email_alternativo', 'termos_aceitos', 'termos_data_aceito']) &&
+        (incoming().email_alternativo == null || (incoming().email_alternativo is string && incoming().email_alternativo.size() <= 200)) &&
+        (incoming().termos_aceitos == null || incoming().termos_aceitos is bool) &&
+        (incoming().termos_data_aceito == null || (incoming().termos_data_aceito is string && incoming().termos_data_aceito.size() <= 100))
+      );
+    }
+
+    // --- SECRETARIAS ---
+    match /secretarias/{id} {
+      allow read: if true;
+      allow write: if hasAdminRole() &&
+                    incoming().nome is string && incoming().nome.size() <= 200;
+    }
+
+    // --- NOTIFICACOES SIMULADAS ---
+    match /emails_simulados/{id} {
+      allow read: if hasPublicAgentRole();
+      // Allow authenticated user or public app actions to record mail dispatch simulations
+      allow create: if true; 
+      allow update, delete: if false; // Audit logs are immutable
+    }
+
+    // --- PROPAGANDAS ---
+    match /propagandas/{id} {
+      allow read: if true;
+      allow write: if hasPublicAgentRole() &&
+                    incoming().titulo is string && incoming().titulo.size() <= 500;
+    }
+
+    // --- CONFIGURACOES VISUAIS ---
+    match /configuracoes/{docId} {
+      allow read: if true;
+      allow write: if hasAdminRole();
+    }
+  }
+}

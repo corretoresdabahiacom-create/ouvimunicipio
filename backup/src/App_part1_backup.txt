@@ -1,0 +1,255 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useState } from "react";
+import { Header } from "./components/Header";
+import { HomeView } from "./components/HomeView";
+import { 
+  MOCK_MANIFESTACOES, 
+  COLORS, 
+  BAIRROS_PADRAO, 
+  SECRETARIAS_PADRAO 
+} from "./data/mockData";
+import { Manifestacao, Usuario, SecretariaItem, ClassifyResponse, SimulatedEmailLog } from "./types";
+import { 
+  ArrowLeft, Check, AlertTriangle, HelpCircle, 
+  Trash2, ShieldAlert, Users, Landmark, 
+  Layers, Plus, Download, RefreshCw, Sparkles, FileText, FileCheck, CheckCircle2,
+  Mail, Bell
+} from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+
+export default function App() {
+  const [view, setView] = useState<string>("cidadao");
+  const [user, setUser] = useState<{ nome: string; perfil: string; email: string } | null>(null);
+  const [manifestacoes, setManifestacoes] = useState<Manifestacao[]>(MOCK_MANIFESTACOES);
+  const [municipio, setMunicipio] = useState<string>("Prefeitura de São Exemplo");
+  const [headerColor, setHeaderColor] = useState<string>(COLORS.govBlue);
+  const [logoText, setLogoText] = useState<string>("SE");
+  const [programName, setProgramName] = useState<string>("OuviCidade IA — Ouvidoria Municipal Inteligente");
+  const [configOpen, setConfigOpen] = useState<boolean>(false);
+
+  // Administrative views and controls
+  const [dashboardTab, setDashboardTab] = useState<string>("painel");
+  const [filtro, setFiltro] = useState({ secretaria: "", status: "", prioridade: "", bairro: "" });
+  const [selectedManif, setSelectedManif] = useState<Manifestacao | null>(null);
+
+  // States for live report and diligence preview inside Admin/Secretaria Dashboard
+  const [reportSecretaria, setReportSecretaria] = useState<string>("");
+  const [showReportPreview, setShowReportPreview] = useState<boolean>(false);
+  const [diligenciadoName, setDiligenciadoName] = useState<string>("");
+  const [customDiligenciadoName, setCustomDiligenciadoName] = useState<string>("");
+
+  // Simulated Email Notification System states
+  const [emailLogs, setEmailLogs] = useState<SimulatedEmailLog[]>([]);
+  const [emailToasts, setEmailToasts] = useState<{ id: string; email: string; subject: string; body: string; protocol: string; stAntigo: string; stNovo: string }[]>([]);
+  const [selectedEmailForModal, setSelectedEmailForModal] = useState<SimulatedEmailLog | null>(null);
+
+
+  // Manage custom users & secretariats inside state
+  const [usuarios, setUsuarios] = useState<Usuario[]>([
+    { id: 1, nome: "Maria Silva", email: "maria@pref.gov.br", perfil: "Ouvidoria", secretaria: "Ouvidoria", ativo: true },
+    { id: 2, nome: "João Santos", email: "joao@pref.gov.br", perfil: "Secretaria", secretaria: "Infraestrutura", ativo: true },
+  ]);
+  const [secretarias, setSecretarias] = useState<SecretariaItem[]>(() => {
+    const defaultDescriptions: Record<string, string> = {
+      "Infraestrutura": "Gerenciamento de asfalto, pavimentação, tapa-buracos, postes de iluminação pública e bueiros.",
+      "Serviços Públicos": "Coleta de lixo, varrição de ruas, entulho clandestino, capina de mato e conservação de praças públicas.",
+      "Saúde": "Regulação e atendimento médico em postos UBS, vacinas, exames e agendamento de consultas.",
+      "Saneamento": "Vazamento de água, encanamento na rua, tratamento de esgoto e redes de saneamento.",
+      "Educação": "Escolas municipais, creches, merenda escolar, matriculas e transporte escolar.",
+      "Segurança": "Atendimento da Guarda Municipal, câmeras de segurança, patrulhamento e vandalismo."
+    };
+    return SECRETARIAS_PADRAO.map((s, i) => ({
+      id: i + 1,
+      nome: s,
+      email: `${s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "")}@pref.gov.br`,
+      responsavel: "A definir",
+      funcoes: defaultDescriptions[s] || "Problemas gerais e encaminhamentos."
+    }));
+  });
+
+  function triggerSimulatedEmail(manif: Manifestacao, statusAntigo: string, statusNovo: string) {
+    if (statusAntigo === statusNovo) return;
+    const destEmail = `manifestante.${manif.protocolo}@ouvidoria.gov.br`;
+    const emailSubject = `[${municipio}] Atualização de Status: Protocolo nº ${manif.protocolo}`;
+    
+    const emailBody = `Prezado(a) cidadão(ã),
+
+Gostaríamos de informar que a sua manifestação (Protocolo nº ${manif.protocolo}) referente a "${manif.tipo}" direcionada para a secretaria de ${manif.secretaria} teve uma alteração de status.
+
+* Histórico de Movimentação do Chamado:
+• Status Anterior: [${statusAntigo}]
+• Novo Status: [${statusNovo}]
+• Data do Evento: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}
+• Responsável pela Alteração: ${user?.nome ? `${user.nome} (${user.perfil})` : 'Agente Público'}
+
+* Resumo da Demanda Original:
+"${manif.descricao.length > 120 ? manif.descricao.substring(0, 117) + "..." : manif.descricao}"
+
+Agradecemos por contribuir para o aprimoramento dos serviços públicos em nosso município. Para realizar o acompanhamento online, utilize a consulta de protocolo do sistema com o código inserido.
+
+Atenciosamente,
+Gabinete de Ouvidoria Integrada
+${municipio}`;
+
+    const newLog: SimulatedEmailLog = {
+      id: `EMAIL-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      protocolo: manif.protocolo,
+      destinatario: destEmail,
+      assunto: emailSubject,
+      conteudo: emailBody,
+      timestamp: new Date().toISOString(),
+      statusAntigo,
+      statusNovo
+    };
+
+    setEmailLogs(prev => [newLog, ...prev]);
+
+    const toastId = `TOAST-${Date.now()}`;
+    const newToast = {
+      id: toastId,
+      email: destEmail,
+      subject: emailSubject,
+      body: emailBody,
+      protocol: manif.protocolo,
+      stAntigo: statusAntigo,
+      stNovo: statusNovo
+    };
+    setEmailToasts(prev => [newToast, ...prev].slice(0, 5));
+
+    setTimeout(() => {
+      setEmailToasts(prev => prev.filter(t => t.id !== toastId));
+    }, 8000);
+  }
+
+  // Sub-forms for administrative inserts
+  const [novoUsuario, setNovoUsuario] = useState({ nome: "", email: "", perfil: "Ouvidoria", secretaria: "" });
+  const [novaSecretaria, setNovaSecretaria] = useState({ nome: "", email: "", responsavel: "", funcoes: "" });
+
+  // Creation Wizard states
+  const [form, setForm] = useState({
+    tipo: "Reclamação",
+    descricao: "",
+    bairro: "",
+    foto: false,
+    localizacao: false,
+    consentimento: false,
+  });
+  const [step, setStep] = useState<number>(1);
+  const [iaResponse, setIaResponse] = useState<ClassifyResponse | null>(null);
+  const [createdProtocol, setCreatedProtocol] = useState<string | null>(null);
+  const [isClassifying, setIsClassifying] = useState<boolean>(false);
+
+  // Tracker states
+  const [searchProtocol, setSearchProtocol] = useState("");
+  const [searchResult, setSearchResult] = useState<Manifestacao | null>(null);
+  const [searchError, setSearchError] = useState("");
+
+  // Registration & Member Login
+  const [cadastroForm, setCadastroForm] = useState({
+    nome: "", endereco: "", telefone: "", email: "", cpf: "", senha: "", consentimento: false
+  });
+  const [cadastroSucesso, setCadastroSucesso] = useState(false);
+  const [loginForm, setLoginForm] = useState({ login: "", senha: "" });
+  const [loginErro, setLoginErro] = useState("");
+  const [isForgotPass, setIsForgotPass] = useState(false);
+
+  function handleLogout() {
+    setUser(null);
+    setView("cidadao");
+  }
+
+  // Submit description to the server for AI categorization
+  async function handleAnalyzeDescription() {
+    if (!form.descricao) return;
+    setIsClassifying(true);
+    try {
+      const response = await fetch("/api/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ descricao: form.descricao, tipo: form.tipo, secretarias: secretarias }),
+      });
+      if (response.ok) {
+        const data: ClassifyResponse = await response.json();
+        setIaResponse(data);
+        setStep(2);
+      } else {
+        throw new Error("Erro de conexão com a API.");
+      }
+    } catch (err) {
+      console.error(err);
+      // Fallback classification client-side if server is unreachable
+      const fallbackData = classifyFallbackClient(form.descricao, form.tipo);
+      setIaResponse(fallbackData);
+      setStep(2);
+    } finally {
+      setIsClassifying(false);
+    }
+  }
+
+  // Client-side rule classifier in case API goes wrong
+  function classifyFallbackClient(texto: string, tipo: string): ClassifyResponse {
+    const t = texto.toLowerCase();
+    let categoria = "Geral";
+    let secretaria = "Ouvidoria";
+    let prioridade = "Média";
+    let resposta = "Sua manifestação foi registrada e já foi enviada para triagem inicial pela equipe responsável.";
+
+    // Tenta encontrar por funções da secretaria se houver
+    let foundSec = "";
+    for (const sec of secretarias) {
+      if (sec.funcoes) {
+        const funcoesLower = sec.funcoes.toLowerCase();
+        const tokens = t.split(/[\s,.;:!?\/()_\-]+/).filter(w => w.length > 3);
+        for (const token of tokens) {
+          if (funcoesLower.includes(token)) {
+            foundSec = sec.nome;
+            break;
+          }
+        }
+      }
+      if (foundSec) break;
+    }
+
+    if (foundSec) {
+      secretaria = foundSec;
+      categoria = foundSec;
+      prioridade = "Média";
+      resposta = `Agradecemos por registrar seu relato. Com base nas competências dadas, sua solicitação foi pré-direcionada para a secretaria comunitária de "${foundSec}".`;
+    } else if (t.includes("buraco") || t.includes("pavimento") || t.includes("asfalto") || t.includes("rua") || t.includes("cratera")) {
+      categoria = "Pavimentação";
+      secretaria = "Infraestrutura";
+      prioridade = "Alta";
+      resposta = "Triamos sua manifestação com foco em Pavimentação asfáltica. Ela foi enviada com ALTA prioridade para a Secretaria de Infraestrutura.";
+    } else if (t.includes("luz") || t.includes("poste") || t.includes("ilumin") || t.includes("escuro")) {
+      categoria = "Iluminação Pública";
+      secretaria = "Infraestrutura";
+      prioridade = "Média";
+      resposta = "Assunto catalogado como Iluminação Pública. O chamado foi enviado para a Secretaria de Infraestrutura.";
+    } else if (t.includes("lixo") || t.includes("limpeza") || t.includes("entulho") || t.includes("capina")) {
+      categoria = "Limpeza Urbana";
+      secretaria = "Serviços Públicos";
+      prioridade = "Alta";
+      resposta = "Pedido encaminhado para a Secretaria de Serviços Públicos na divisão de Limpeza Urbana para recolhimento rápido.";
+    } else if (t.includes("água") || t.includes("esgoto") || t.includes("vazamento") || t.includes("saneamento")) {
+      categoria = "Saneamento";
+      secretaria = "Saneamento";
+      prioridade = "Alta";
+      resposta = "Sua reclamação de Saneamento foi enviada como prioritária para os canais de engenharia ambiental.";
+    }
+
+    if (tipo === "Denúncia" && prioridade !== "Alta") {
+      prioridade = "Urgente";
+    }
+
+    return {
+      categoria,
+      secretaria,
+      prioridade,
+      resposta,
+      is_ai: false
+    };
+  }

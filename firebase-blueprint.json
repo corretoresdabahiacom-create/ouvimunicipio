@@ -1,0 +1,288 @@
+{
+  "entities": {
+    "Manifestacao": {
+      "title": "Manifestacao",
+      "description": "Uma manifestação ou chamado registrado pelo cidadão",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number",
+          "description": "Identificador numérico do registro"
+        },
+        "protocolo": {
+          "type": "string",
+          "description": "Código do protocolo público"
+        },
+        "tipo": {
+          "type": "string",
+          "description": "Tipo de manifestação (Reclamação, Sugestão, Elogio, Denúncia)"
+        },
+        "descricao": {
+          "type": "string",
+          "description": "Descrição detalhada do cidadão"
+        },
+        "status": {
+          "type": "string",
+          "description": "Status de tramitação"
+        },
+        "prioridade": {
+          "type": "string",
+          "description": "Nível de prioridade"
+        },
+        "secretaria": {
+          "type": "string",
+          "description": "Secretaria municipal responsável"
+        },
+        "bairro": {
+          "type": "string",
+          "description": "Bairro do ocorrido"
+        },
+        "data": {
+          "type": "string",
+          "description": "Data de abertura (ISO YYYY-MM-DD)"
+        },
+        "ia_categoria": {
+          "type": "string",
+          "description": "Categoria inferida pela Inteligência Artificial"
+        },
+        "resposta_ia": {
+          "type": "string",
+          "description": "Acolhida inicial gerada por IA"
+        },
+        "autor_nome": {
+          "type": "string",
+          "description": "Nome do autor da denúncia"
+        },
+        "autor_ocupacao": {
+          "type": "string",
+          "description": "Ocupação do autor"
+        },
+        "destacado": {
+          "type": "boolean",
+          "description": "Se a denúncia está em destaque"
+        },
+        "responsavel_nome": {
+          "type": "string",
+          "description": "Nome do agente delegado"
+        },
+        "responsavel_cargo": {
+          "type": "string",
+          "description": "Cargo do agente delegado"
+        },
+        "responsavel_email": {
+          "type": "string",
+          "description": "Email do agente delegado"
+        },
+        "despacho": {
+          "type": "string",
+          "description": "Despacho administrativo"
+        },
+        "despacho_autor": {
+          "type": "string",
+          "description": "Autor do despacho homolgado"
+        }
+      },
+      "required": ["protocolo", "tipo", "descricao", "status", "prioridade", "secretaria", "bairro"]
+    },
+    "Usuario": {
+      "title": "Usuario",
+      "description": "Servidores municipais, procuradores e administradores do portal",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number",
+          "description": "ID numérico sequencial"
+        },
+        "nome": {
+          "type": "string",
+          "description": "Nome do servidor"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email oficial do servidor"
+        },
+        "perfil": {
+          "type": "string",
+          "description": "Perfil de acesso"
+        },
+        "secretaria": {
+          "type": "string",
+          "description": "Secretaria associada"
+        },
+        "ativo": {
+          "type": "boolean",
+          "description": "Se a conta está ativa"
+        },
+        "ocupacao": {
+          "type": "string",
+          "description": "Cargo ou ocupação detalhada"
+        },
+        "email_alternativo": {
+          "type": "string",
+          "description": "E-mail alternativo do agente público para despachos e notificações de prova"
+        },
+        "termos_aceitos": {
+          "type": "boolean",
+          "description": "Indica se o usuário já aceitou os termos e condições do software"
+        },
+        "termos_data_aceito": {
+          "type": "string",
+          "description": "Timestamp ISO da data e hora em que o usuário aceitou os termos e condições"
+        }
+      },
+      "required": ["nome", "email", "perfil", "ativo"]
+    },
+    "SecretariaItem": {
+      "title": "SecretariaItem",
+      "description": "Secretaria cadastrada no município",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number",
+          "description": "Identificador numérico"
+        },
+        "nome": {
+          "type": "string",
+          "description": "Nome oficial da secretaria"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email de correspondência da secretaria"
+        },
+        "responsavel": {
+          "type": "string",
+          "description": "Nome do secretário ou gestor"
+        },
+        "funcoes": {
+          "type": "string",
+          "description": "Competências legais e funções operacionais"
+        }
+      },
+      "required": ["nome", "email"]
+    },
+    "SimulatedEmailLog": {
+      "title": "SimulatedEmailLog",
+      "description": "Histórico de e-mails de notificação disparados cooperativamente",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador do registro"
+        },
+        "protocolo": {
+          "type": "string",
+          "description": "Protocolo relacionado"
+        },
+        "destinatario": {
+          "type": "string",
+          "description": "E-mail de destino"
+        },
+        "assunto": {
+          "type": "string",
+          "description": "Assunto do e-mail"
+        },
+        "conteudo": {
+          "type": "string",
+          "description": "Corpo da mensagem oficial"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Data e hora de envio"
+        },
+        "statusAntigo": {
+          "type": "string",
+          "description": "Status anterior"
+        },
+        "statusNovo": {
+          "type": "string",
+          "description": "Novo status"
+        }
+      },
+      "required": ["protocolo", "destinatario", "assunto", "conteudo", "timestamp"]
+    },
+    "Configuracao": {
+      "title": "Configuracao",
+      "description": "Camada de preferências de cores e personalização da prefeitura",
+      "type": "object",
+      "properties": {
+        "municipio": {
+          "type": "string"
+        },
+        "headerColor": {
+          "type": "string"
+        },
+        "logoText": {
+          "type": "string"
+        },
+        "logoImageUrl": {
+          "type": "string"
+        },
+        "programName": {
+          "type": "string"
+        }
+      },
+      "required": ["municipio", "headerColor", "logoText"]
+    },
+    "Propaganda": {
+      "title": "Propaganda",
+      "description": "Espaços informativos ou publicitários municipais",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number"
+        },
+        "titulo": {
+          "type": "string"
+        },
+        "link": {
+          "type": "string"
+        },
+        "imagem": {
+          "type": "string"
+        },
+        "ativa": {
+          "type": "boolean"
+        },
+        "telaDestino": {
+          "type": "string"
+        },
+        "posicao": {
+          "type": "string"
+        },
+        "noticiaCompleta": {
+          "type": "string"
+        },
+        "textoBotao": {
+          "type": "string"
+        }
+      },
+      "required": ["titulo", "imagem", "ativa"]
+    }
+  },
+  "firestore": {
+    "manifestacoes": {
+      "schema": "Manifestacao",
+      "description": "Lista de manifestações cadastrados pelo público"
+    },
+    "usuarios": {
+      "schema": "Usuario",
+      "description": "Cadastro e gerenciador de servidores públicos e administradores"
+    },
+    "secretarias": {
+      "schema": "SecretariaItem",
+      "description": "Lista de secretarias de governo"
+    },
+    "emails_simulados": {
+      "schema": "SimulatedEmailLog",
+      "description": "Log de notificações por correspondência simulada"
+    },
+    "configuracoes": {
+      "schema": "Configuracao",
+      "description": "Documentos de preferências visuais e texto institucional"
+    },
+    "propagandas": {
+      "schema": "Propaganda",
+      "description": "Campanhas publicitárias e de utilidade pública"
+    }
+  }
+}
