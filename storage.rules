@@ -3,30 +3,34 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} { allow read, write: if false; }
 
-    // Anexos de um protocolo: uploads/{uid do autor}/{protocoloId}/{arquivo}
-    match /uploads/{uid}/{protocoloId}/{arquivo} {
-      function verificado() {
-        return request.auth != null && request.auth.token.email_verified == true;
-      }
-      function tipoOk() {
-        return request.resource.contentType.matches('image/(jpeg|png|webp|gif)') && request.resource.size <= 10 * 1024 * 1024
-            || request.resource.contentType.matches('video/(mp4|webm|quicktime)') && request.resource.size <= 50 * 1024 * 1024;
-      }
-      function protocolo() {
-        return firestore.get(/databases/(default)/documents/protocolos/$(protocoloId)).data;
+    // Anexos: uploads/{uid do autor}/{número do protocolo}/{arquivo}
+    match /uploads/{uid}/{numero}/{arquivo} {
+      function verificado() { return request.auth != null && request.auth.token.email_verified == true; }
+      function meuEmail()   { return request.auth.token.email; }
+      function protocolo()  { return firestore.get(/databases/(default)/documents/protocolos/$(numero)).data; }
+      function servidorDaSecretaria() {
+        return firestore.exists(/databases/(default)/documents/equipe/$(meuEmail()))
+          && firestore.get(/databases/(default)/documents/equipe/$(meuEmail())).data.ativo == true
+          && firestore.get(/databases/(default)/documents/equipe/$(meuEmail())).data.papel in ['secretario', 'assessor']
+          && firestore.get(/databases/(default)/documents/equipe/$(meuEmail())).data.secretariaId == protocolo().secretariaId;
       }
 
-      // Envio: só o dono, só tipos permitidos, e só antes de o protocolo existir (imutável depois).
-      allow create: if verificado() && request.auth.uid == uid && tipoOk()
-        && arquivo.matches('[A-Za-z0-9._-]{1,120}')
-        && !firestore.exists(/databases/(default)/documents/protocolos/$(protocoloId));
+      // Limites reduzidos: imagem até 2 MB (o app comprime antes de enviar) e vídeo até 15 MB.
+      function tipoETamanhoOk() {
+        return (request.resource.contentType.matches('image/(jpeg|png|webp)') && request.resource.size <= 2 * 1024 * 1024)
+            || (request.resource.contentType.matches('video/(mp4|webm)') && request.resource.size <= 15 * 1024 * 1024);
+      }
 
-      // Leitura: autor, ou servidor da secretaria do protocolo.
+      // Envio: só o dono, antes de o protocolo existir; depois disso os anexos ficam imutáveis.
+      allow create: if verificado() && request.auth.uid == uid && tipoETamanhoOk()
+        && arquivo.matches('[A-Za-z0-9._-]{1,100}')
+        && numero.matches('OUV-[0-9]{4}-[A-Z0-9]{8}')
+        && !firestore.exists(/databases/(default)/documents/protocolos/$(numero));
+
+      // Leitura: o autor ou servidor da secretaria destinatária.
       allow read: if verificado() && (
         request.auth.uid == uid ||
-        (request.auth.token.get('role', '') == 'servidor'
-          && firestore.exists(/databases/(default)/documents/protocolos/$(protocoloId))
-          && protocolo().secretariaId == request.auth.token.secretariaId)
+        (firestore.exists(/databases/(default)/documents/protocolos/$(numero)) && servidorDaSecretaria())
       );
       allow update, delete: if false;
     }

@@ -1,10 +1,9 @@
 {
-  "apiKey": "AIzaSyFakeKey_Placeholder_For_Compilation",
-  "authDomain": "placeholder-project.firebaseapp.com",
-  "projectId": "placeholder-project",
-  "storageBucket": "placeholder-project.appspot.com",
-  "messagingSenderId": "999999999999",
-  "appId": "1:999999999999:web:aaaaaaaaaaaaaaaaaaaaaa",
-  "measurementId": "G-FFFFFFFFFF",
+  "apiKey": "AIzaSyB19MujohAbzIyEMWWFNvFn1sE3MMTYl3k",
+  "authDomain": "ouvimunicipio-f2bf7.firebaseapp.com",
+  "projectId": "ouvimunicipio-f2bf7",
+  "storageBucket": "ouvimunicipio-f2bf7.firebasestorage.app",
+  "messagingSenderId": "730077562886",
+  "appId": "1:730077562886:web:48940be4bcb337b9e69b87",
   "firestoreDatabaseId": "(default)"
 }

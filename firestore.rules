@@ -2,57 +2,128 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Padrão: tudo negado. Escritas sensíveis só via Cloud Functions (Admin SDK).
+    // Padrão: tudo negado.
     match /{document=**} { allow read, write: if false; }
 
-    function logado()    { return request.auth != null; }
-    // Papéis vêm de custom claims definidas só pelo servidor. Exige e-mail confirmado.
+    // ---------- helpers ----------
+    function logado()     { return request.auth != null; }
     function verificado() { return logado() && request.auth.token.email_verified == true; }
-    function papel()     { return request.auth.token.get('role', 'cidadao'); }
-    function ehAdmin()   { return verificado() && papel() == 'admin'; }
-    function ehServidor() { return verificado() && papel() == 'servidor'; }
+    function meuEmail()   { return request.auth.token.email; }
+    function docEquipe()  { return get(/databases/$(database)/documents/equipe/$(meuEmail())).data; }
+    function naEquipe() {
+      return verificado()
+        && exists(/databases/$(database)/documents/equipe/$(meuEmail()))
+        && docEquipe().ativo == true;
+    }
+    function ehAdmin()    { return naEquipe() && docEquipe().papel == 'admin'; }
+    function ehServidor() { return naEquipe() && docEquipe().papel in ['secretario', 'assessor']; }
+    function minhaSecretaria() { return docEquipe().secretariaId; }
 
-    // Perfis: cada pessoa lê só o seu. Admin lê perfis (gestão de servidores), nunca mensagens.
+    // ---------- perfil do usuário (só o próprio) ----------
     match /users/{uid} {
-      allow read: if verificado() && (request.auth.uid == uid || ehAdmin());
-      // Cidadão cria o próprio perfil, sempre como 'cidadao'. Papel nunca é editável pelo cliente.
+      allow read: if verificado() && request.auth.uid == uid;
       allow create: if verificado() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['nome', 'email', 'telefone', 'role', 'ativo', 'criadoEm'])
-        && request.resource.data.role == 'cidadao'
-        && request.resource.data.ativo == true
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.nome is string && request.resource.data.nome.size() <= 120;
+        && request.resource.data.keys().hasOnly(['nome', 'telefone', 'criadoEm'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 120
+        && request.resource.data.criadoEm == request.time;
       allow update: if verificado() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'telefone'])
         && request.resource.data.nome is string && request.resource.data.nome.size() <= 120;
       allow delete: if false;
     }
 
-    // Lista de secretarias (nomes públicos para o formulário). Escrita: só admin via Functions.
+    // ---------- equipe: admin, secretários e assessores (cadastrados pelo admin) ----------
+    // O ID do documento é o e-mail em minúsculas. A pessoa se cadastra normalmente,
+    // confirma o e-mail e, se estiver aqui e ativa, ganha o papel correspondente.
+    match /equipe/{email} {
+      allow read: if verificado() && (ehAdmin() || meuEmail() == email);
+      allow create, update: if ehAdmin()
+        && request.resource.data.keys().hasOnly(['nome', 'papel', 'secretariaId', 'ativo'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 120
+        && request.resource.data.papel in ['admin', 'secretario', 'assessor']
+        && request.resource.data.ativo is bool
+        && (request.resource.data.papel == 'admin' || (
+              request.resource.data.secretariaId is string
+              && exists(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId))))
+        // o admin não pode se rebaixar nem se desativar (evita ficar sem administrador)
+        && (email != meuEmail() || (request.resource.data.papel == 'admin' && request.resource.data.ativo == true));
+      allow delete: if ehAdmin() && email != meuEmail();
+    }
+
+    // ---------- secretarias ----------
     match /secretarias/{id} {
       allow read: if verificado();
-      allow write: if false;
+      allow create, update: if ehAdmin()
+        && request.resource.data.keys().hasOnly(['nome', 'ativa'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
+        && request.resource.data.ativa is bool;
+      allow delete: if ehAdmin();
     }
 
-    // Protocolos: só o autor e os servidores da secretaria destinatária. Não é público.
-    match /protocolos/{id} {
+    // ---------- protocolos (privados: autor + servidores da secretaria) ----------
+    // O ID do documento é o próprio número do protocolo (ex.: OUV-2026-K3M9Q2XA).
+    match /protocolos/{numero} {
       allow get, list: if verificado() && (
         resource.data.autorUid == request.auth.uid ||
-        (ehServidor() && resource.data.secretariaId == request.auth.token.secretariaId)
+        (ehServidor() && resource.data.secretariaId == minhaSecretaria())
       );
-      allow write: if false; // criar/responder apenas por Functions
+
+      allow create: if verificado()
+        && numero.matches('OUV-[0-9]{4}-[A-Z0-9]{8}')
+        && request.resource.data.keys().hasOnly(
+             ['numero', 'autorUid', 'secretariaId', 'secretariaNome', 'assunto', 'mensagem', 'anexos', 'status', 'criadoEm', 'prazoEm'])
+        && request.resource.data.numero == numero
+        && request.resource.data.autorUid == request.auth.uid
+        && request.resource.data.status == 'aberto'
+        && request.resource.data.criadoEm == request.time
+        && request.resource.data.prazoEm == request.time + duration.value(30, 'd')   // prazo de 30 dias
+        && request.resource.data.assunto is string && request.resource.data.assunto.size() >= 3 && request.resource.data.assunto.size() <= 120
+        && request.resource.data.mensagem is string && request.resource.data.mensagem.size() >= 3 && request.resource.data.mensagem.size() <= 5000
+        && request.resource.data.anexos is list && request.resource.data.anexos.size() <= 5
+        && get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.ativa == true
+        && request.resource.data.secretariaNome ==
+           get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.nome;
+
+      // Resposta: só servidor da secretaria destinatária, uma única vez, e só estes campos.
+      allow update: if ehServidor()
+        && resource.data.secretariaId == minhaSecretaria()
+        && resource.data.status == 'aberto'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resposta', 'respondidoPor', 'respondidoEm'])
+        && request.resource.data.status == 'respondido'
+        && request.resource.data.respondidoPor == request.auth.uid
+        && request.resource.data.respondidoEm == request.time
+        && request.resource.data.resposta is string && request.resource.data.resposta.size() >= 3 && request.resource.data.resposta.size() <= 5000;
+
+      allow delete: if false;
     }
 
-    // Notificações: só do próprio usuário e enquanto não expiraram. Limpeza por Function.
+    // ---------- notificações (somente do dono e enquanto não expiraram) ----------
+    // Configure TTL no campo `expiraEm` (Firestore > TTL) para apagar de vez, sem custo.
     match /notificacoes/{id} {
       allow read: if verificado() && resource.data.uid == request.auth.uid
         && resource.data.expiraEm > request.time;
-      allow write: if false;
-    }
+      allow delete: if verificado() && resource.data.uid == request.auth.uid;
 
-    // Internos: sem acesso do cliente.
-    match /auditoria/{id} { allow read, write: if false; }
-    match /limites/{id}   { allow read, write: if false; }
-    match /mail/{id}      { allow read, write: if false; }
+      function camposOk() {
+        return request.resource.data.keys().hasOnly(['uid', 'protocoloId', 'tipo', 'mensagem', 'criadoEm', 'expiraEm'])
+          && request.resource.data.criadoEm == request.time
+          && request.resource.data.mensagem is string && request.resource.data.mensagem.size() <= 500;
+      }
+
+      // "Recebido": criada pelo cidadão junto com o protocolo (mesmo lote), prazo de 30 dias exibido.
+      allow create: if verificado() && camposOk()
+        && request.resource.data.tipo == 'recebido'
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.auth.uid
+        && request.resource.data.expiraEm == request.time + duration.value(30, 'd')
+        ||
+      // "Resposta": criada pelo servidor junto com a resposta (mesmo lote). Some em 24 horas.
+        ehServidor() && camposOk()
+        && request.resource.data.tipo == 'resposta'
+        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.status == 'respondido'
+        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
+        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
+        && request.resource.data.expiraEm == request.time + duration.value(24, 'h');
+    }
   }
 }
