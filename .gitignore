@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+backend/lib/
+backend/node_modules/
+*-firebase-adminsdk-*.json
+serviceAccount*.json
+.firebase/

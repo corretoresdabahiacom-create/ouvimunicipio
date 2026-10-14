@@ -1,0 +1,34 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} { allow read, write: if false; }
+
+    // Anexos de um protocolo: uploads/{uid do autor}/{protocoloId}/{arquivo}
+    match /uploads/{uid}/{protocoloId}/{arquivo} {
+      function verificado() {
+        return request.auth != null && request.auth.token.email_verified == true;
+      }
+      function tipoOk() {
+        return request.resource.contentType.matches('image/(jpeg|png|webp|gif)') && request.resource.size <= 10 * 1024 * 1024
+            || request.resource.contentType.matches('video/(mp4|webm|quicktime)') && request.resource.size <= 50 * 1024 * 1024;
+      }
+      function protocolo() {
+        return firestore.get(/databases/(default)/documents/protocolos/$(protocoloId)).data;
+      }
+
+      // Envio: só o dono, só tipos permitidos, e só antes de o protocolo existir (imutável depois).
+      allow create: if verificado() && request.auth.uid == uid && tipoOk()
+        && arquivo.matches('[A-Za-z0-9._-]{1,120}')
+        && !firestore.exists(/databases/(default)/documents/protocolos/$(protocoloId));
+
+      // Leitura: autor, ou servidor da secretaria do protocolo.
+      allow read: if verificado() && (
+        request.auth.uid == uid ||
+        (request.auth.token.get('role', '') == 'servidor'
+          && firestore.exists(/databases/(default)/documents/protocolos/$(protocoloId))
+          && protocolo().secretariaId == request.auth.token.secretariaId)
+      );
+      allow update, delete: if false;
+    }
+  }
+}
