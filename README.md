@@ -1,20 +1,16 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Ouvidoria Municipal
 
-# Run and deploy your AI Studio app
+App simples (PWA) para o cidadão enviar mensagens (texto, foto e vídeo) à secretaria do município e acompanhar o protocolo.
 
-This contains everything you need to run your app locally.
+- Cidadão: cadastro com confirmação de e-mail → escolhe a secretaria → envia → recebe protocolo com prazo de 30 dias → recebe a resposta (aviso some em 24 h).
+- Secretário/assessor: vê só as mensagens da sua secretaria e responde.
+- Administrador: cadastra, edita e exclui secretarias e servidores; ações registradas por e-mail.
+- Instalável no celular e no computador, com QR Code.
 
-View your app in AI Studio: https://ai.studio/apps/25a2fc94-d6cd-4c79-ad2c-2326faa57fac
+Veja `SETUP_FIREBASE.md` para configurar e publicar.
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```
+npm install
+npm run dev      # desenvolvimento
+npm run build    # gera dist/
+```

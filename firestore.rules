@@ -62,6 +62,7 @@ service cloud.firestore {
 
     // ---------- protocolos (privados: autor + servidores da secretaria) ----------
     // O ID do documento é o próprio número do protocolo (ex.: OUV-2026-K3M9Q2XA).
+    // criadoEm é sempre o horário do servidor; o prazo de 30 dias = criadoEm + 30 dias (não editável).
     match /protocolos/{numero} {
       allow get, list: if verificado() && (
         resource.data.autorUid == request.auth.uid ||
@@ -71,12 +72,11 @@ service cloud.firestore {
       allow create: if verificado()
         && numero.matches('OUV-[0-9]{4}-[A-Z0-9]{8}')
         && request.resource.data.keys().hasOnly(
-             ['numero', 'autorUid', 'secretariaId', 'secretariaNome', 'assunto', 'mensagem', 'anexos', 'status', 'criadoEm', 'prazoEm'])
+             ['numero', 'autorUid', 'secretariaId', 'secretariaNome', 'assunto', 'mensagem', 'anexos', 'status', 'criadoEm'])
         && request.resource.data.numero == numero
         && request.resource.data.autorUid == request.auth.uid
         && request.resource.data.status == 'aberto'
         && request.resource.data.criadoEm == request.time
-        && request.resource.data.prazoEm == request.time + duration.value(30, 'd')   // prazo de 30 dias
         && request.resource.data.assunto is string && request.resource.data.assunto.size() >= 3 && request.resource.data.assunto.size() <= 120
         && request.resource.data.mensagem is string && request.resource.data.mensagem.size() >= 3 && request.resource.data.mensagem.size() <= 5000
         && request.resource.data.anexos is list && request.resource.data.anexos.size() <= 5
@@ -95,35 +95,59 @@ service cloud.firestore {
         && request.resource.data.resposta is string && request.resource.data.resposta.size() >= 3 && request.resource.data.resposta.size() <= 5000;
 
       allow delete: if false;
+
+      // Mídias (imagens comprimidas e vídeos curtos) guardadas em partes, sem usar o Storage.
+      // k = "<anexo 0-4>_<parte 0-11>". Só podem ser criadas junto com o protocolo (mesmo lote) e ficam imutáveis.
+      match /midias/{k} {
+        allow read: if verificado() && (
+          get(/databases/$(database)/documents/protocolos/$(numero)).data.autorUid == request.auth.uid ||
+          (ehServidor() && get(/databases/$(database)/documents/protocolos/$(numero)).data.secretariaId == minhaSecretaria())
+        );
+        allow create: if verificado()
+          && k.matches('[0-4]_([0-9]|1[01])')
+          && !exists(/databases/$(database)/documents/protocolos/$(numero))
+          && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.autorUid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['k', 'mime', 'data'])
+          && request.resource.data.k == k
+          && request.resource.data.mime.matches('(image/(jpeg|png|webp)|video/(mp4|webm|quicktime))')
+          && request.resource.data.data is string
+          && request.resource.data.data.size() > 0 && request.resource.data.data.size() <= 940000;
+        allow update, delete: if false;
+      }
     }
 
-    // ---------- notificações (somente do dono e enquanto não expiraram) ----------
-    // Configure TTL no campo `expiraEm` (Firestore > TTL) para apagar de vez, sem custo.
+    // ---------- notificações (somente do dono) ----------
+    // O app só exibe avisos com expiraEm no futuro (resposta: 24 h) e apaga os vencidos.
+    // Configure TTL no campo `expiraEm` (Firestore > TTL) para a exclusão definitiva, sem custo.
     match /notificacoes/{id} {
-      allow read: if verificado() && resource.data.uid == request.auth.uid
-        && resource.data.expiraEm > request.time;
+      allow read: if verificado() && resource.data.uid == request.auth.uid;
       allow delete: if verificado() && resource.data.uid == request.auth.uid;
 
       function camposOk() {
         return request.resource.data.keys().hasOnly(['uid', 'protocoloId', 'tipo', 'mensagem', 'criadoEm', 'expiraEm'])
           && request.resource.data.criadoEm == request.time
-          && request.resource.data.mensagem is string && request.resource.data.mensagem.size() <= 500;
+          && request.resource.data.mensagem is string && request.resource.data.mensagem.size() <= 500
+          && request.resource.data.protocoloId is string;
+      }
+      function expiraEntre(minimo, maximo) {
+        return request.resource.data.expiraEm >= request.time + minimo
+            && request.resource.data.expiraEm <= request.time + maximo;
       }
 
-      // "Recebido": criada pelo cidadão junto com o protocolo (mesmo lote), prazo de 30 dias exibido.
+      // "Recebido": criada pelo cidadão junto com o protocolo (mesmo lote). Visível por ~30 dias.
       allow create: if verificado() && camposOk()
         && request.resource.data.tipo == 'recebido'
         && request.resource.data.uid == request.auth.uid
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.auth.uid
-        && request.resource.data.expiraEm == request.time + duration.value(30, 'd')
+        && expiraEntre(duration.value(29, 'd'), duration.value(31, 'd'))
         ||
-      // "Resposta": criada pelo servidor junto com a resposta (mesmo lote). Some em 24 horas.
+      // "Resposta": criada pelo servidor junto com a resposta (mesmo lote). Some em 24 horas (tolerância de ±30 min para o relógio do aparelho).
         ehServidor() && camposOk()
         && request.resource.data.tipo == 'resposta'
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.status == 'respondido'
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
-        && request.resource.data.expiraEm == request.time + duration.value(24, 'h');
+        && expiraEntre(duration.value(1410, 'm'), duration.value(1470, 'm'));
     }
   }
 }

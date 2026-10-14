@@ -1,37 +1,41 @@
-# Configuração do Firebase (plano gratuito Spark – sem Cloud Functions)
+# Configuração (plano gratuito do Firebase + Cloudflare Pages)
 
-Projeto: `ouvimunicipio-f2bf7`
+Projeto Firebase: `ouvimunicipio-f2bf7`. Não usa Cloud Functions nem Storage (ambos exigem plano pago).
 
 ## 1. Console Firebase
-1. **Authentication → Método de login:** ative **E-mail/senha**. Em *Configurações → Domínios autorizados*, inclua o domínio do app.
-2. **Firestore Database:** criar banco em modo produção, região `southamerica-east1`.
-3. **Firestore → TTL:** crie uma política para a coleção `notificacoes`, campo `expiraEm` (apaga avisos vencidos sem custo).
-4. **Storage:** abra a página. Se pedir upgrade de plano, veja "Mídia" abaixo.
-5. **App Check:** registre o app Web com reCAPTCHA v3 (gratuito) e ative a *imposição* para Firestore e Storage.
+1. **Authentication → Método de login:** ative **E-mail/senha**. Em *Configurações → Domínios autorizados* inclua o domínio do app (`*.pages.dev` ou o seu).
+2. **Firestore Database:** criado em `southamerica-east1`.
+3. **Firestore → Regras:** cole o conteúdo de `firestore.rules` e publique (sempre que o arquivo mudar).
+4. **Firestore → TTL:** crie uma política na coleção `notificacoes`, campo `expiraEm` (apaga avisos vencidos, sem custo).
+5. **App Check (recomendado):** registre o app Web com reCAPTCHA v3 (gratuito), copie a *chave do site* para a variável
+   `VITE_RECAPTCHA_SITE_KEY` na Cloudflare e só então ative a imposição para o Firestore.
 
-## 2. Publicar as regras
-Pelo console (Firestore → Regras; Storage → Regras) colando `firestore.rules` e `storage.rules`,
-ou com `npx firebase-tools deploy --only firestore,storage`.
+## 2. Primeiro administrador (uma vez, manualmente)
+1. Abra o app, crie sua conta e **confirme o e-mail**.
+2. No Firestore, crie a coleção `equipe` e o documento com ID = **seu e-mail em minúsculas**, com os campos:
+   `nome` (texto), `papel` = `admin` (texto), `ativo` = `true` (booleano).
+3. Saia e entre de novo: o painel **Admin** aparece.
 
-## 3. Primeiro administrador (uma vez, manualmente)
-1. Cadastre-se no app com o seu e-mail e **confirme o e-mail**.
-2. No Firestore, crie o documento `equipe/seu-email-em-minusculas` com:
-   `nome` (texto), `papel` = `admin`, `ativo` = `true`.
-A partir daí o admin cadastra secretarias e servidores pelo próprio app.
+## 3. Como o servidor entra
+No painel Admin → *Servidores*, cadastre o e-mail, a função (secretário ou assessor) e a secretaria.
+A pessoa cria a conta no app com **esse mesmo e-mail** e confirma o e-mail. Remover ou desativar o cadastro tira o acesso na hora.
 
-## 4. Como o servidor entra
-O admin cadastra o e-mail do servidor (papel `secretario` ou `assessor` + secretaria).
-O servidor cria a conta com esse e-mail, **confirma o e-mail** e passa a ver só os protocolos da sua secretaria.
-Excluir/desativar o cadastro em `equipe` retira o acesso imediatamente.
+## 4. Cloudflare Pages
+- **Build command:** `npm run build` · **Output directory:** `dist`
+- Variáveis (Settings → Variables and Secrets):
+  - `FIREBASE_PROJECT_ID` = `ouvimunicipio-f2bf7`
+  - `AUDIT_EMAIL` = e-mail que recebe o registro das ações do admin
+  - `RESEND_API_KEY` = chave gratuita de resend.com (marcar como *Secret*)
+  - `RESEND_FROM` (opcional) = remetente de domínio verificado; sem isso o Resend só entrega ao e-mail dono da conta
+  - `VITE_RECAPTCHA_SITE_KEY` (opcional) = chave do site do reCAPTCHA v3
 
-## 5. E-mail de auditoria (Cloudflare Pages → Settings → Variables and Secrets)
-- `FIREBASE_PROJECT_ID` = `ouvimunicipio-f2bf7`
-- `AUDIT_EMAIL` = e-mail que receberá o registro das ações do admin
-- `RESEND_API_KEY` = chave da conta gratuita em resend.com (marcar como *Secret*)
-- `RESEND_FROM` (opcional) = remetente de domínio verificado. Sem isso o Resend só entrega ao e-mail dono da conta.
+## Limites de mídia (guardada no próprio Firestore)
+- Fotos: reduzidas automaticamente no celular (~700 KB cada).
+- Vídeos: até 7 MB (clipes curtos). Soma dos anexos: 7 MB. Máximo de 5 anexos por mensagem.
 
-## Mídia (limites reduzidos)
-Imagem até **2 MB** (o app comprime antes) e vídeo até **15 MB**.
-Desde 2024 o Firebase Storage em projetos novos exige o plano Blaze. Se a página do Storage pedir upgrade,
-a alternativa gratuita é hospedar anexos no Cloudflare R2 ou aceitar apenas imagens comprimidas
-(guardadas no próprio Firestore, ~300 KB cada). Decida após verificar a página do Storage.
+## Segurança em resumo
+- Mensagens e anexos só são lidos pelo autor e pelos servidores da secretaria escolhida. O admin **não** lê mensagens.
+- Papéis vêm da coleção `equipe` (só o admin escreve); e-mail confirmado é obrigatório para tudo.
+- Prazo de 30 dias (`criadoEm` + 30) e horário de resposta são gravados pelo servidor; respostas são imutáveis.
+- Avisos de resposta expiram em 24 h (some da tela e é apagado do banco).
+- Cabeçalhos de segurança e CSP em `public/_headers`.

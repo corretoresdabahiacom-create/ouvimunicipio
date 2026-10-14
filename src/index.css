@@ -1,8 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Outfit", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-brand: #0b3b8c;
+  --color-brand-dark: #082b66;
 }
+
+html { -webkit-text-size-adjust: 100%; }
+body { background: #f1f5f9; color: #0f172a; font-family: var(--font-sans); padding-bottom: env(safe-area-inset-bottom); }
+:focus-visible { outline: 3px solid #f59e0b; outline-offset: 2px; }

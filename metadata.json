@@ -1,6 +1,0 @@
-{
-  "name": "Ouvidoria Municipal Inteligente",
-  "description": "MVP de Ouvidoria Municipal inteligente com classificação dinâmica por IA baseada em relatos de cidadãos",
-  "requestFramePermissions": ["geolocation"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
