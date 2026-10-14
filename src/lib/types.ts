@@ -2,12 +2,25 @@ import type { Timestamp } from "firebase/firestore";
 
 export type Papel = "cidadao" | "admin" | "secretario" | "assessor";
 
+export type Situacao = "ativo" | "bloqueado" | "excluido";
+
 export interface Perfil {
   uid: string;
   email: string;
   nome: string;
+  telefone?: string;
   papel: Papel;
   secretariaId?: string;
+  situacao: Situacao;
+}
+
+export interface UsuarioApp {
+  id: string;
+  nome: string;
+  email: string;
+  telefone?: string;
+  situacao: Situacao;
+  criadoEm: Timestamp | null;
 }
 
 export interface Secretaria { id: string; nome: string; ativa: boolean }

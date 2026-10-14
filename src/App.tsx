@@ -1,14 +1,17 @@
 import { useState } from "react";
-import { Bell, FilePlus2, Inbox, LogOut, QrCode, Settings, ShieldCheck } from "lucide-react";
+import { Bell, FilePlus2, Inbox, LogOut, QrCode, Settings, UserRound } from "lucide-react";
 import { AuthProvider, useAuth } from "./lib/useAuth";
 import { TelaAuth, TelaConfirmarEmail } from "./components/Auth";
 import { NovaMensagem, MeusProtocolos, PainelAvisos, usarNotificacoes } from "./components/Cidadao";
 import { PainelSecretaria } from "./components/Secretaria";
 import { PainelAdmin } from "./components/Admin";
 import { Instalar } from "./components/Instalar";
+import { Perfil } from "./components/Perfil";
+import { Cabecalho, Carrossel } from "./components/Marca";
+import { SiteProvider } from "./lib/useConfig";
 import { Aviso, Botao, Carregando, Cartao } from "./components/ui";
 
-type Aba = "nova" | "protocolos" | "avisos" | "painel" | "admin" | "instalar";
+type Aba = "nova" | "protocolos" | "avisos" | "painel" | "admin" | "perfil" | "instalar";
 
 function Shell() {
   const { perfil, sair } = useAuth();
@@ -25,6 +28,7 @@ function Shell() {
     { id: "avisos", rotulo: "Avisos", Icone: Bell, mostrar: !ehAdmin && !ehServidor, badge: visiveis.length },
     { id: "painel", rotulo: "Mensagens", Icone: Inbox, mostrar: ehServidor },
     { id: "admin", rotulo: "Admin", Icone: Settings, mostrar: ehAdmin },
+    { id: "perfil", rotulo: "Perfil", Icone: UserRound, mostrar: true },
     { id: "instalar", rotulo: "Instalar", Icone: QrCode, mostrar: true },
   ];
 
@@ -33,7 +37,7 @@ function Shell() {
   return (
     <div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
       <header className="flex items-center justify-between bg-brand px-4 py-3 text-white">
-        <div className="flex items-center gap-2"><ShieldCheck className="size-5" aria-hidden /><h1 className="font-bold">Ouvidoria Municipal</h1></div>
+        <h1 className="min-w-0"><Cabecalho /></h1>
         <div className="flex items-center gap-2 text-sm">
           <span className="hidden max-w-40 truncate sm:inline">{perfil?.nome || perfil?.email}</span>
           <button onClick={sair} aria-label="Sair" className="rounded p-2 hover:bg-white/10"><LogOut className="size-5" /></button>
@@ -41,6 +45,7 @@ function Shell() {
       </header>
 
       <main className="flex-1 space-y-4 p-4 pb-24">
+        {!ehAdmin && !ehServidor && (aba === "nova" || aba === "protocolos" || aba === "avisos") && !protocoloSel && <Carrossel />}
         {concluido && aba === "nova" ? (
           <Cartao className="space-y-3 text-center">
             <Aviso tipo="ok">Mensagem enviada! Seu protocolo é <b className="font-mono">{concluido}</b>. A secretaria tem até 30 dias para responder.</Aviso>
@@ -54,6 +59,7 @@ function Shell() {
         : aba === "avisos" ? <PainelAvisos abrirProtocolo={abrirProtocolo} />
         : aba === "painel" ? <PainelSecretaria />
         : aba === "admin" ? <PainelAdmin />
+        : aba === "perfil" ? <Perfil />
         : <Instalar />}
       </main>
 
@@ -85,9 +91,20 @@ function Raiz() {
       <Botao variante="secundario" onClick={sair}>Sair</Botao>
     </main>
   );
+  if (perfil.situacao !== "ativo") return (
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 p-4">
+      <Cartao className="space-y-3 text-center">
+        <h1 className="text-xl font-bold">{perfil.situacao === "bloqueado" ? "Conta bloqueada" : "Conta removida"}</h1>
+        <p className="text-slate-600">{perfil.situacao === "bloqueado"
+          ? "O acesso desta conta foi suspenso pela prefeitura. Entre em contato com a ouvidoria para mais informações."
+          : "Esta conta foi removida pela prefeitura e não pode mais ser usada."}</p>
+        <Botao variante="secundario" onClick={sair}>Sair</Botao>
+      </Cartao>
+    </main>
+  );
   return <Shell key={perfil.uid} />;
 }
 
 export default function App() {
-  return <AuthProvider><Raiz /></AuthProvider>;
+  return <SiteProvider><AuthProvider><Raiz /></AuthProvider></SiteProvider>;
 }

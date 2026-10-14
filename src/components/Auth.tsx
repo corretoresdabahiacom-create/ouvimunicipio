@@ -5,12 +5,16 @@ import { auth } from "../lib/firebase";
 import { mensagemDeErro } from "../lib/erros";
 import { useAuth } from "../lib/useAuth";
 import { Botao, Campo, Cartao, Aviso } from "./ui";
+import { Carrossel, Logo } from "./Marca";
+import { useSite } from "../lib/useConfig";
 
 type Modo = "entrar" | "cadastrar" | "recuperar";
 
 export function TelaAuth() {
   const [modo, setModo] = useState<Modo>("entrar");
+  const { nome: municipio } = useSite();
   const [nome, setNome] = useState("");
+  const [telefone, setTelefone] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [aceite, setAceite] = useState(false);
@@ -28,7 +32,10 @@ export function TelaAuth() {
         if (nome.trim().length < 3) throw new Error("Informe seu nome completo.");
         if (senha.length < 8 || !/[A-Za-z]/.test(senha) || !/\d/.test(senha)) throw new Error("A senha precisa ter 8 ou mais caracteres, com letras e números.");
         if (!aceite) throw new Error("É preciso aceitar o uso dos dados para continuar.");
+        const tel = telefone.replace(/\D/g, "");
+        if (tel && !/^[0-9]{10,13}$/.test(tel)) throw new Error("Telefone inválido. Use DDD + número, ou deixe em branco.");
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), senha);
+        try { if (tel) localStorage.setItem(`tel:${cred.user.uid}`, tel); } catch { /* ignore */ }
         await updateProfile(cred.user, { displayName: nome.trim().slice(0, 120) });
         await sendEmailVerification(cred.user);
       } else {
@@ -42,14 +49,18 @@ export function TelaAuth() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 p-4">
-      <header className="text-center">
-        <h1 className="text-2xl font-bold text-brand">Ouvidoria Municipal</h1>
+      <header className="flex flex-col items-center gap-2 text-center">
+        <Logo tamanho="size-20" className="text-brand" />
+        <h1 className="text-2xl font-bold text-brand">{municipio}</h1>
+        <p className="text-sm font-medium text-slate-700">Ouvidoria Municipal</p>
         <p className="text-sm text-slate-600">Envie sua mensagem à secretaria e acompanhe o protocolo.</p>
       </header>
+      <Carrossel />
       <Cartao>
         <h2 className="mb-4 text-lg font-semibold">{modo === "entrar" ? "Entrar" : modo === "cadastrar" ? "Criar conta" : "Recuperar senha"}</h2>
         <form onSubmit={enviar} className="space-y-3">
           {modo === "cadastrar" && <Campo rotulo="Nome completo" value={nome} onChange={(e) => setNome(e.target.value)} autoComplete="name" required maxLength={120} />}
+          {modo === "cadastrar" && <Campo rotulo="Telefone (opcional)" type="tel" inputMode="numeric" value={telefone} onChange={(e) => setTelefone(e.target.value)} autoComplete="tel" maxLength={20} dica="DDD + número. Só a prefeitura vê, para contato." />}
           <Campo rotulo="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required maxLength={254} />
           {modo !== "recuperar" && (
             <Campo rotulo="Senha" type="password" value={senha} onChange={(e) => setSenha(e.target.value)} required

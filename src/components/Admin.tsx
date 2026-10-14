@@ -7,6 +7,7 @@ import { mensagemDeErro } from "../lib/erros";
 import { registrarAuditoria } from "../lib/audit";
 import type { MembroEquipe, Secretaria } from "../lib/types";
 import { Aviso, Botao, Campo, Cartao, Carregando } from "./ui";
+import { Aparencia, Publicidade, Usuarios } from "./AdminExtra";
 
 function useColecao<T>(nome: string, mapear: (id: string, d: Record<string, unknown>) => T) {
   const [dados, setDados] = useState<T[] | null>(null);
@@ -20,7 +21,7 @@ function useColecao<T>(nome: string, mapear: (id: string, d: Record<string, unkn
 const PAPEL_ROTULO = { admin: "Administrador", secretario: "Secretário(a)", assessor: "Assessor(a)" } as const;
 
 export function PainelAdmin() {
-  const [aba, setAba] = useState<"secretarias" | "equipe">("secretarias");
+  const [aba, setAba] = useState<"secretarias" | "equipe" | "usuarios" | "aparencia" | "publicidade">("secretarias");
   const [aviso, setAviso] = useState("");
   const sec = useColecao<Secretaria>("secretarias", (id, d) => ({ id, nome: String(d.nome), ativa: d.ativa === true }));
   const eq = useColecao<MembroEquipe>("equipe", (id, d) => ({ email: id, nome: String(d.nome), papel: d.papel as MembroEquipe["papel"], secretariaId: d.secretariaId as string | undefined, ativo: d.ativo === true }));
@@ -34,19 +35,21 @@ export function PainelAdmin() {
   return (
     <div className="space-y-3">
       <h2 className="text-lg font-semibold">Administração</h2>
-      <div role="tablist" className="flex gap-2">
-        {(["secretarias", "equipe"] as const).map((a) => (
+      <div role="tablist" className="flex gap-2 overflow-x-auto pb-1">
+        {([["secretarias", "Secretarias"], ["equipe", "Servidores"], ["usuarios", "Usuários"], ["aparencia", "Aparência"], ["publicidade", "Publicidade"]] as const).map(([a, rotulo]) => (
           <button key={a} role="tab" aria-selected={aba === a} onClick={() => setAba(a)}
-            className={`rounded-full px-4 py-2 text-sm font-semibold ${aba === a ? "bg-brand text-white" : "border bg-white text-slate-700"}`}>
-            {a === "secretarias" ? "Secretarias" : "Servidores"}
+            className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${aba === a ? "bg-brand text-white" : "border bg-white text-slate-700"}`}>
+            {rotulo}
           </button>
         ))}
       </div>
       {(sec.erro || eq.erro) && <Aviso>{sec.erro || eq.erro}</Aviso>}
       {aviso && <Aviso tipo="info">{aviso}</Aviso>}
-      {aba === "secretarias"
-        ? <Secretarias lista={sec.dados} equipe={eq.dados} auditar={auditar} />
-        : <Equipe lista={eq.dados} secretarias={sec.dados} auditar={auditar} />}
+      {aba === "secretarias" ? <Secretarias lista={sec.dados} equipe={eq.dados} auditar={auditar} />
+        : aba === "equipe" ? <Equipe lista={eq.dados} secretarias={sec.dados} auditar={auditar} />
+        : aba === "usuarios" ? <Usuarios auditar={auditar} />
+        : aba === "aparencia" ? <Aparencia auditar={auditar} />
+        : <Publicidade auditar={auditar} />}
     </div>
   );
 }

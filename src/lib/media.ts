@@ -60,3 +60,38 @@ export function juntarPartes(partes: string[], mime: string): Blob {
 export function formatarBytes(n: number): string {
   return n < 1_000_000 ? `${Math.round(n / 1000)} KB` : `${(n / 1_000_000).toFixed(1)} MB`;
 }
+
+// ---------- imagens de marca (logo e anúncios) guardadas como data URL no Firestore ----------
+export interface OpcoesImagem { maxW: number; maxH: number; mime: "image/png" | "image/jpeg" | "image/webp"; qualidade: number; maxChars: number; cobrir?: boolean }
+
+export async function imagemParaDataUrl(file: File, o: OpcoesImagem): Promise<string> {
+  if (!file.type.startsWith("image/")) throw new Error("Escolha um arquivo de imagem.");
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp) throw new Error("Não foi possível ler a imagem.");
+  let escalaExtra = 1;
+  try {
+    for (let tentativa = 0; tentativa < 4; tentativa++) {
+      const W = Math.round(o.maxW * escalaExtra), H = Math.round(o.maxH * escalaExtra);
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d")!;
+      if (o.cobrir) {
+        canvas.width = W; canvas.height = H;
+        const s = Math.max(W / bmp.width, H / bmp.height);
+        const dw = bmp.width * s, dh = bmp.height * s;
+        if (o.mime === "image/jpeg") { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H); }
+        ctx.drawImage(bmp, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      } else {
+        const s = Math.min(1, W / bmp.width, H / bmp.height);
+        canvas.width = Math.max(1, Math.round(bmp.width * s)); canvas.height = Math.max(1, Math.round(bmp.height * s));
+        if (o.mime === "image/jpeg") { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+        ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      }
+      for (let q = o.qualidade; q >= 0.4; q -= 0.15) {
+        const url = canvas.toDataURL(o.mime, q);
+        if (/^data:image\/(png|jpeg|webp);base64,/.test(url) && url.length <= o.maxChars) return url;
+      }
+      escalaExtra *= 0.75;
+    }
+  } finally { bmp.close(); }
+  throw new Error("A imagem ficou grande demais. Use uma imagem mais simples ou menor.");
+}

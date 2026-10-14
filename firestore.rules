@@ -7,7 +7,14 @@ service cloud.firestore {
 
     // ---------- helpers ----------
     function logado()     { return request.auth != null; }
-    function verificado() { return logado() && request.auth.token.email_verified == true; }
+    // e-mail confirmado (sem checar bloqueio)
+    function basico()     { return logado() && request.auth.token.email_verified == true; }
+    // conta liberada: e-mail confirmado e NÃO bloqueada/excluída pelo admin
+    function situacaoOk() {
+      return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('situacao', 'ativo') == 'ativo';
+    }
+    function verificado() { return basico() && situacaoOk(); }
     function meuEmail()   { return request.auth.token.email; }
     function docEquipe()  { return get(/databases/$(database)/documents/equipe/$(meuEmail())).data; }
     function naEquipe() {
@@ -19,16 +26,40 @@ service cloud.firestore {
     function ehServidor() { return naEquipe() && docEquipe().papel in ['secretario', 'assessor']; }
     function minhaSecretaria() { return docEquipe().secretariaId; }
 
-    // ---------- perfil do usuário (só o próprio) ----------
+    // ---------- perfil do usuário ----------
+    // Cada pessoa lê/edita só o seu (nome, telefone opcional). O admin lê a lista e pode
+    // bloquear, desbloquear ou "excluir" (anonimiza e bloqueia para sempre) – nunca edita dados pessoais.
+    function telefoneOk(d) {
+      return !d.keys().hasAny(['telefone']) || (d.telefone is string && d.telefone.matches('[0-9]{10,13}'));
+    }
     match /users/{uid} {
-      allow read: if verificado() && request.auth.uid == uid;
-      allow create: if verificado() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['nome', 'telefone', 'criadoEm'])
+      allow read: if basico() && (request.auth.uid == uid || ehAdmin());
+      allow create: if basico() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['nome', 'telefone', 'email', 'criadoEm', 'situacao'])
+        && request.resource.data.situacao == 'ativo'
+        && request.resource.data.email == meuEmail()
         && request.resource.data.nome is string && request.resource.data.nome.size() <= 120
-        && request.resource.data.criadoEm == request.time;
-      allow update: if verificado() && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'telefone'])
-        && request.resource.data.nome is string && request.resource.data.nome.size() <= 120;
+        && request.resource.data.criadoEm == request.time
+        && telefoneOk(request.resource.data);
+      // o próprio usuário (só se a conta estiver ativa)
+      allow update: if basico() && request.auth.uid == uid
+        && resource.data.get('situacao', 'ativo') == 'ativo'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'telefone', 'email'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 120
+        && request.resource.data.email == meuEmail()
+        && telefoneOk(request.resource.data)
+        ||
+      // o administrador: bloquear/desbloquear, ou excluir (apaga nome/e-mail/telefone e bloqueia de vez)
+        ehAdmin() && uid != request.auth.uid
+        && resource.data.get('situacao', 'ativo') != 'excluido'
+        && request.resource.data.situacao in ['ativo', 'bloqueado', 'excluido']
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['situacao'])
+          || (request.resource.data.situacao == 'excluido'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['situacao', 'nome', 'email', 'telefone'])
+              && request.resource.data.nome == '(removido)' && request.resource.data.email == ''
+              && !request.resource.data.keys().hasAny(['telefone']))
+        );
       allow delete: if false;
     }
 
@@ -103,7 +134,7 @@ service cloud.firestore {
           get(/databases/$(database)/documents/protocolos/$(numero)).data.autorUid == request.auth.uid ||
           (ehServidor() && get(/databases/$(database)/documents/protocolos/$(numero)).data.secretariaId == minhaSecretaria())
         );
-        allow create: if verificado()
+        allow create: if basico()
           && k.matches('[0-4]_([0-9]|1[01])')
           // só vale se o protocolo é criado NESTE mesmo lote (mesmo request.time) pelo mesmo autor;
           // usar um único getAfter evita estourar o limite de consultas por lote do Firestore.
@@ -119,8 +150,7 @@ service cloud.firestore {
     }
 
     // ---------- notificações (somente do dono) ----------
-    // O app só exibe avisos com expiraEm no futuro (resposta: 24 h) e apaga os vencidos.
-    // Configure TTL no campo `expiraEm` (Firestore > TTL) para a exclusão definitiva, sem custo.
+    // O app só exibe avisos com expiraEm no futuro (resposta: 24 h) e apaga os vencidos ao abrir.
     match /notificacoes/{id} {
       allow read: if verificado() && resource.data.uid == request.auth.uid;
       allow delete: if verificado() && resource.data.uid == request.auth.uid;
@@ -150,6 +180,37 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
         && expiraEntre(duration.value(1410, 'm'), duration.value(1470, 'm'));
+    }
+
+    // ---------- aparência do site (pública: aparece antes do login) ----------
+    function imagemOk(v, max) {
+      return v is string && v.size() <= max && v.matches('data:image/(png|jpeg|webp);base64,.*');
+    }
+    match /config/{id} {
+      allow get: if id == 'site';
+      allow create, update: if id == 'site' && ehAdmin()
+        && request.resource.data.keys().hasOnly(['nome', 'cor', 'logo', 'atualizadoEm'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
+        && request.resource.data.cor is string && request.resource.data.cor.matches('#[0-9a-fA-F]{6}')
+        && request.resource.data.logo is string
+        && (request.resource.data.logo == '' || imagemOk(request.resource.data.logo, 250000))
+        && request.resource.data.atualizadoEm == request.time;
+      allow delete: if false;
+    }
+
+    // ---------- publicidade (carrossel da tela inicial) ----------
+    match /anuncios/{id} {
+      allow get, list: if resource.data.ativo == true || ehAdmin();
+      allow create, update: if ehAdmin()
+        && request.resource.data.keys().hasOnly(['titulo', 'link', 'imagem', 'ativo', 'ordem', 'criadoEm'])
+        && request.resource.data.titulo is string && request.resource.data.titulo.size() >= 1 && request.resource.data.titulo.size() <= 80
+        && request.resource.data.link is string && request.resource.data.link.size() <= 500
+        && (request.resource.data.link == '' || request.resource.data.link.matches('https://[^ ]{4,}'))
+        && imagemOk(request.resource.data.imagem, 420000)
+        && request.resource.data.ativo is bool
+        && request.resource.data.ordem is int && request.resource.data.ordem >= 0 && request.resource.data.ordem <= 999
+        && request.resource.data.criadoEm is timestamp;
+      allow delete: if ehAdmin();
     }
   }
 }

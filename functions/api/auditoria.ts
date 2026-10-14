@@ -17,6 +17,13 @@ const ACOES: Record<string, string> = {
   "servidor.criar": "Servidor cadastrado",
   "servidor.editar": "Servidor editado",
   "servidor.excluir": "Servidor excluído",
+  "config.editar": "Aparência do site alterada",
+  "anuncio.criar": "Anúncio criado",
+  "anuncio.editar": "Anúncio editado",
+  "anuncio.excluir": "Anúncio excluído",
+  "usuario.bloquear": "Usuário bloqueado",
+  "usuario.desbloquear": "Usuário desbloqueado",
+  "usuario.excluir": "Usuário excluído",
 };
 
 const JSON_H = { "Content-Type": "application/json", "Cache-Control": "no-store" };

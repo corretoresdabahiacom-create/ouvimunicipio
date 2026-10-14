@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import type { Perfil } from "./types";
+import type { Perfil, Situacao } from "./types";
 
 interface Ctx {
   user: User | null;
@@ -17,16 +17,27 @@ export const useAuth = () => useContext(AuthCtx);
 
 async function carregarPerfil(user: User): Promise<Perfil> {
   const email = (user.email ?? "").toLowerCase();
-  const base: Perfil = { uid: user.uid, email, nome: user.displayName ?? "", papel: "cidadao" };
+  const base: Perfil = { uid: user.uid, email, nome: user.displayName ?? "", papel: "cidadao", situacao: "ativo" };
 
-  // Perfil básico do cidadão (criado na primeira vez com e-mail confirmado).
+  // Perfil básico (criado na primeira vez com e-mail confirmado).
   const uref = doc(db, "users", user.uid);
   const usnap = await getDoc(uref);
   if (!usnap.exists()) {
-    await setDoc(uref, { nome: (user.displayName ?? "").slice(0, 120), criadoEm: serverTimestamp() });
-  } else if (usnap.get("nome")) {
-    base.nome = usnap.get("nome");
+    const novo: Record<string, unknown> = { nome: (user.displayName ?? "").slice(0, 120), email, situacao: "ativo", criadoEm: serverTimestamp() };
+    try {
+      const tel = localStorage.getItem(`tel:${user.uid}`);
+      if (tel && /^[0-9]{10,13}$/.test(tel)) { novo.telefone = tel; base.telefone = tel; }
+      localStorage.removeItem(`tel:${user.uid}`);
+    } catch { /* ignore */ }
+    await setDoc(uref, novo);
+  } else {
+    base.nome = usnap.get("nome") || base.nome;
+    base.telefone = usnap.get("telefone") || undefined;
+    base.situacao = (usnap.get("situacao") as Situacao) ?? "ativo";
+    // preenche o e-mail em contas antigas (usado na lista do administrador)
+    if (!usnap.get("email") && base.situacao === "ativo") { void updateDoc(uref, { email }).catch(() => undefined); }
   }
+  if (base.situacao !== "ativo") return base; // bloqueado/excluído: sem papéis nem dados
 
   // Equipe (admin/secretário/assessor): cadastrada pelo administrador, pelo e-mail.
   const esnap = await getDoc(doc(db, "equipe", email));

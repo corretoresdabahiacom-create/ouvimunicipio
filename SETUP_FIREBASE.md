@@ -40,3 +40,19 @@ A pessoa cria a conta no app com **esse mesmo e-mail** e confirma o e-mail. Remo
 - Prazo de 30 dias (`criadoEm` + 30) e horário de resposta são gravados pelo servidor; respostas são imutáveis.
 - Avisos de resposta expiram em 24 h (somem da tela e são apagados do banco quando o cidadão abre o app).
 - Cabeçalhos de segurança e CSP em `public/_headers`.
+
+## Painel do administrador
+- **Secretarias / Servidores:** cadastro, edição e exclusão (ver acima).
+- **Usuários:** total de cadastrados, lista com nome, e-mail e telefone (opcional), busca e filtros (situação, com telefone).
+  O admin pode **bloquear/desbloquear** (reversível) e **excluir** (apaga nome, e-mail e telefone e bloqueia para sempre).
+  Sem Cloud Functions não é possível apagar o *login* da pessoa pelo app: para liberar um e-mail para novo cadastro,
+  remova-o também em Firebase → Authentication → Usuários.
+- **Aparência:** nome do município, logomarca (reduzida automaticamente) e cor principal do layout (o app exige contraste mínimo 4,5 com texto branco).
+  Vale na hora para todos, inclusive na tela de login.
+- **Publicidade:** até 10 anúncios no carrossel da tela inicial (imagem 3:1, título e link https opcional), com ordem, ativar/desativar e exclusão.
+  O carrossel aparece na tela de login e para os cidadãos.
+
+> Depois de atualizar o código, **republique o `firestore.rules`** no console do Firebase.
+
+## Observação sobre o nome no ícone instalado
+O nome e o ícone do app **instalado** (manifest) são fixos ("Ouvidoria"); a marca e as cores mudam dentro do app.
