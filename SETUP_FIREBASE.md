@@ -6,7 +6,8 @@ Projeto Firebase: `ouvimunicipio-f2bf7`. Não usa Cloud Functions nem Storage (a
 1. **Authentication → Método de login:** ative **E-mail/senha**. Em *Configurações → Domínios autorizados* inclua o domínio do app (`*.pages.dev` ou o seu).
 2. **Firestore Database:** criado em `southamerica-east1`.
 3. **Firestore → Regras:** cole o conteúdo de `firestore.rules` e publique (sempre que o arquivo mudar).
-4. **Firestore → TTL:** crie uma política na coleção `notificacoes`, campo `expiraEm` (apaga avisos vencidos, sem custo).
+4. *(TTL do Firestore exige faturamento ativo e NÃO é usado.)* Os avisos vencidos somem da tela após 24 h e o próprio app os apaga
+   do banco na próxima vez que o cidadão abrir o aplicativo.
 5. **App Check (recomendado):** registre o app Web com reCAPTCHA v3 (gratuito), copie a *chave do site* para a variável
    `VITE_RECAPTCHA_SITE_KEY` na Cloudflare e só então ative a imposição para o Firestore.
 
@@ -37,5 +38,5 @@ A pessoa cria a conta no app com **esse mesmo e-mail** e confirma o e-mail. Remo
 - Mensagens e anexos só são lidos pelo autor e pelos servidores da secretaria escolhida. O admin **não** lê mensagens.
 - Papéis vêm da coleção `equipe` (só o admin escreve); e-mail confirmado é obrigatório para tudo.
 - Prazo de 30 dias (`criadoEm` + 30) e horário de resposta são gravados pelo servidor; respostas são imutáveis.
-- Avisos de resposta expiram em 24 h (some da tela e é apagado do banco).
+- Avisos de resposta expiram em 24 h (somem da tela e são apagados do banco quando o cidadão abre o app).
 - Cabeçalhos de segurança e CSP em `public/_headers`.

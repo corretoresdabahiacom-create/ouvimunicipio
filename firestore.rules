@@ -105,8 +105,10 @@ service cloud.firestore {
         );
         allow create: if verificado()
           && k.matches('[0-4]_([0-9]|1[01])')
-          && !exists(/databases/$(database)/documents/protocolos/$(numero))
+          // só vale se o protocolo é criado NESTE mesmo lote (mesmo request.time) pelo mesmo autor;
+          // usar um único getAfter evita estourar o limite de consultas por lote do Firestore.
           && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.autorUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.criadoEm == request.time
           && request.resource.data.keys().hasOnly(['k', 'mime', 'data'])
           && request.resource.data.k == k
           && request.resource.data.mime.matches('(image/(jpeg|png|webp)|video/(mp4|webm|quicktime))')
