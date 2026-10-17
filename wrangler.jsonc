@@ -4,5 +4,10 @@
   "compatibility_date": "2026-03-01",
   "compatibility_flags": [
     "nodejs_compat"
-  ]
+  ],
+  // Variáveis públicas das funções (/api/auditoria e /api/mensagem).
+  // Segredos (RESEND_API_KEY) continuam no painel do Cloudflare, como "Secret".
+  "vars": {
+    "FIREBASE_PROJECT_ID": "ouvimunicipio-f2bf7"
+  }
 }

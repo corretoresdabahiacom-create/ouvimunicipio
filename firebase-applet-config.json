@@ -5,5 +5,6 @@
   "storageBucket": "ouvimunicipio-f2bf7.firebasestorage.app",
   "messagingSenderId": "730077562886",
   "appId": "1:730077562886:web:48940be4bcb337b9e69b87",
-  "firestoreDatabaseId": "(default)"
+  "firestoreDatabaseId": "(default)",
+  "recaptchaSiteKey": "6LdR9fMtAAAAAI5K8uu348z13nM9reMfQ5KhPMAU"
 }
