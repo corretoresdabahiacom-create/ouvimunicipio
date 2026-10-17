@@ -54,7 +54,7 @@ export interface Notificacao {
   id: string;
   uid: string;
   protocoloId: string;
-  tipo: "recebido" | "resposta";
+  tipo: "recebido" | "resposta" | "aviso";
   mensagem: string;
   criadoEm: Timestamp | null;
   expiraEm: Timestamp;

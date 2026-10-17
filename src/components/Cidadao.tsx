@@ -267,12 +267,12 @@ export function PainelAvisos({ abrirProtocolo }: { abrirProtocolo: (id: string) 
       <h2 className="flex items-center gap-2 text-lg font-semibold"><Bell className="size-5" aria-hidden /> Avisos</h2>
       {visiveis.length === 0 && <Cartao><p className="text-slate-600">Nenhum aviso no momento.</p></Cartao>}
       {visiveis.map((n) => (
-        <Cartao key={n.id} className={n.tipo === "resposta" ? "border-emerald-300 bg-emerald-50" : ""}>
-          <p className="text-sm font-medium">{n.tipo === "resposta" ? "Resposta recebida" : "Protocolo registrado"}</p>
-          <p className="mt-1 text-slate-800">{n.mensagem}</p>
+        <Cartao key={n.id} className={n.tipo === "resposta" ? "border-emerald-300 bg-emerald-50" : n.tipo === "aviso" ? "border-amber-300 bg-amber-50" : ""}>
+          <p className="text-sm font-medium">{n.tipo === "resposta" ? "Resposta recebida" : n.tipo === "aviso" ? "Aviso da prefeitura" : "Protocolo registrado"}</p>
+          <p className="mt-1 whitespace-pre-line text-slate-800">{n.mensagem}</p>
           <p className="mt-1 text-xs text-slate-500">{dataBR(n.criadoEm)} · {restante(n, agora)}</p>
           <div className="mt-2 flex gap-2">
-            <Botao variante="secundario" onClick={() => abrirProtocolo(n.protocoloId)}>Abrir protocolo</Botao>
+            {n.protocoloId && <Botao variante="secundario" onClick={() => abrirProtocolo(n.protocoloId)}>Abrir protocolo</Botao>}
             <Botao variante="link" onClick={() => { void deleteDoc(doc(db, "notificacoes", n.id)); }}>Dispensar</Botao>
           </div>
         </Cartao>

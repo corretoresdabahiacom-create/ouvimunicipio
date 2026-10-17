@@ -27,6 +27,7 @@ A pessoa cria a conta no app com **esse mesmo e-mail** e confirma o e-mail. Remo
   - `FIREBASE_PROJECT_ID` = `ouvimunicipio-f2bf7`
   - `AUDIT_EMAIL` = e-mail que recebe o registro das ações do admin
   - `RESEND_API_KEY` = chave gratuita de resend.com (marcar como *Secret*)
+  - `NOME_ORGAO` (opcional) = nome que aparece no rodapé dos e-mails enviados aos usuários
   - `RESEND_FROM` (opcional) = remetente de domínio verificado; sem isso o Resend só entrega ao e-mail dono da conta
   - `VITE_RECAPTCHA_SITE_KEY` (opcional) = chave do site do reCAPTCHA v3
 
@@ -56,3 +57,9 @@ A pessoa cria a conta no app com **esse mesmo e-mail** e confirma o e-mail. Remo
 
 ## Observação sobre o nome no ícone instalado
 O nome e o ícone do app **instalado** (manifest) são fixos ("Ouvidoria"); a marca e as cores mudam dentro do app.
+
+## Mensagens do Admin aos usuários
+Em **Admin → Usuários**: filtre, marque as pessoas (ou deixe nenhuma marcada para usar todo o filtro) e clique em *Enviar mensagem*.
+- **Aviso no aplicativo**: aparece na aba Avisos por 2–30 dias e some sozinho (não precisa de nada além das regras novas).
+- **E-mail**: usa `/api/mensagem` (Cloudflare) com `RESEND_API_KEY` e, para entregar a qualquer pessoa, `RESEND_FROM` de um domínio verificado no Resend. Até 500 pessoas por envio.
+- **Republique o `firestore.rules`** (há uma regra nova para avisos).

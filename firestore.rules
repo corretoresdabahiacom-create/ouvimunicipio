@@ -173,6 +173,13 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.auth.uid
         && expiraEntre(duration.value(29, 'd'), duration.value(31, 'd'))
         ||
+      // "Aviso": mensagem do ADMIN para um usuário (sem protocolo). Dura de 1 a 31 dias.
+        ehAdmin() && camposOk()
+        && request.resource.data.tipo == 'aviso'
+        && request.resource.data.protocoloId == ''
+        && request.resource.data.uid is string && request.resource.data.uid.size() > 0
+        && expiraEntre(duration.value(1, 'd'), duration.value(31, 'd'))
+        ||
       // "Resposta": criada pelo servidor junto com a resposta (mesmo lote). Some em 24 horas (tolerância de ±30 min para o relógio do aparelho).
         ehServidor() && camposOk()
         && request.resource.data.tipo == 'resposta'

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   addDoc, collection, deleteDoc, deleteField, doc, getCountFromServer, getDocs, limit, onSnapshot, orderBy, query,
-  serverTimestamp, setDoc, startAfter, updateDoc, where, type QueryDocumentSnapshot,
+  serverTimestamp, setDoc, startAfter, Timestamp, updateDoc, where, writeBatch, type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { ArrowDown, ArrowUp, Ban, ImagePlus, Pencil, Trash2, Undo2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Ban, ImagePlus, Mail, Pencil, Trash2, Undo2 } from "lucide-react";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { imagemParaDataUrl } from "../lib/media";
+import { enviarEmailUsuarios } from "../lib/audit";
 import { contrasteComBranco, escurecer, HEX_OK, linkSeguro, useSite, type Anuncio } from "../lib/useConfig";
 import type { UsuarioApp } from "../lib/types";
 import { Aviso, Botao, Campo, Cartao, Carregando, dataBR } from "./ui";
@@ -235,6 +236,9 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
   const [busca, setBusca] = useState("");
   const [sit, setSit] = useState<"todos" | "ativo" | "bloqueado" | "excluido">("todos");
   const [soTel, setSoTel] = useState(false);
+  const [periodo, setPeriodo] = useState<"todos" | "7" | "30" | "90">("todos");
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [msgAberta, setMsgAberta] = useState(false);
 
   async function contar() {
     try {
@@ -269,10 +273,20 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
   const filtrados = useMemo(() => {
     const t = busca.trim().toLowerCase();
     const td = t.replace(/\D/g, "");
+    const desde = periodo === "todos" ? 0 : Date.now() - Number(periodo) * 86_400_000;
     return itens.filter((u) =>
       (sit === "todos" || u.situacao === sit) && (!soTel || !!u.telefone) &&
+      (desde === 0 || (u.criadoEm?.toMillis?.() ?? 0) >= desde) &&
       (!t || u.nome.toLowerCase().includes(t) || u.email.toLowerCase().includes(t) || (td.length >= 3 && (u.telefone ?? "").includes(td))));
-  }, [itens, busca, sit, soTel]);
+  }, [itens, busca, sit, soTel, periodo]);
+
+  // Destinatários: os marcados; se nada estiver marcado, todos os que aparecem no filtro (só contas ativas).
+  const destinatarios = useMemo(() => {
+    const base = sel.size > 0 ? itens.filter((u) => sel.has(u.id)) : filtrados;
+    return base.filter((u) => u.situacao === "ativo" && u.id !== perfil?.uid);
+  }, [sel, itens, filtrados, perfil]);
+  const alternar = (id: string) => setSel((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const marcaveis = filtrados.filter((u) => u.situacao === "ativo" && u.id !== perfil?.uid);
 
   async function mudar(u: UsuarioApp, nova: "ativo" | "bloqueado" | "excluido") {
     const rotulo = u.nome || u.email;
@@ -302,20 +316,32 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
             <select value={sit} onChange={(e) => setSit(e.target.value as typeof sit)} className="rounded-lg border bg-white px-2 py-1.5">
               <option value="todos">Todas</option><option value="ativo">Ativos</option><option value="bloqueado">Bloqueados</option><option value="excluido">Excluídos</option>
             </select></label>
+          <label className="text-sm">Cadastro:{" "}
+            <select value={periodo} onChange={(e) => setPeriodo(e.target.value as typeof periodo)} className="rounded-lg border bg-white px-2 py-1.5">
+              <option value="todos">Qualquer data</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option>
+            </select></label>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={soTel} onChange={(e) => setSoTel(e.target.checked)} className="size-4" /> Só com telefone</label>
         </div>
         <p className="text-xs text-slate-500">A busca vale para os {itens.length} usuários já carregados{fim ? " (todos)" : ""}. Mostrando {filtrados.length}.</p>
       </Cartao>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <Botao onClick={() => setMsgAberta(true)} disabled={destinatarios.length === 0}><Mail className="mr-1 inline size-4" aria-hidden />Enviar mensagem a {destinatarios.length} {destinatarios.length === 1 ? "usuário" : "usuários"}</Botao>
+        <span className="text-xs text-slate-500">{sel.size > 0 ? `${sel.size} marcado(s)` : "Nenhum marcado: vai para todos que aparecem no filtro"}</span>
+        {sel.size > 0 && <Botao variante="link" onClick={() => setSel(new Set())}>Limpar seleção</Botao>}
+      </div>
+      {msgAberta && <EnviarMensagem destinatarios={destinatarios} auditar={auditar} fechar={() => setMsgAberta(false)} />}
+
       {erro && <Aviso>{erro}</Aviso>}
       <Cartao className="overflow-x-auto p-0 sm:p-0">
         <table className="w-full min-w-[34rem] text-left text-sm">
           <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500">
-            <tr><th className="px-3 py-2">Nome</th><th className="px-3 py-2">E-mail</th><th className="px-3 py-2">Telefone</th><th className="px-3 py-2">Desde</th><th className="px-3 py-2 text-right">Ações</th></tr>
+            <tr><th className="w-8 px-3 py-2"><input type="checkbox" className="size-4" aria-label="Marcar todos os listados" checked={marcaveis.length > 0 && marcaveis.every((u) => sel.has(u.id))} onChange={(e) => setSel(e.target.checked ? new Set(marcaveis.map((u) => u.id)) : new Set())} /></th><th className="px-3 py-2">Nome</th><th className="px-3 py-2">E-mail</th><th className="px-3 py-2">Telefone</th><th className="px-3 py-2">Desde</th><th className="px-3 py-2 text-right">Ações</th></tr>
           </thead>
           <tbody className="divide-y">
             {filtrados.map((u) => (
               <tr key={u.id} className={u.situacao === "ativo" ? "" : "bg-slate-50 text-slate-500"}>
+                <td className="px-3 py-2">{u.situacao === "ativo" && u.id !== perfil?.uid && <input type="checkbox" className="size-4" aria-label={`Marcar ${u.nome || u.email}`} checked={sel.has(u.id)} onChange={() => alternar(u.id)} />}</td>
                 <td className="px-3 py-2 font-medium">{u.nome || "—"} {u.situacao === "bloqueado" && <span className="rounded bg-red-100 px-1.5 text-xs text-red-800">bloqueado</span>}{u.situacao === "excluido" && <span className="rounded bg-slate-200 px-1.5 text-xs">excluído</span>}</td>
                 <td className="px-3 py-2 break-all">{u.email || "—"}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{formatarTelefone(u.telefone) || "—"}</td>
@@ -330,7 +356,7 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
                 </td>
               </tr>
             ))}
-            {filtrados.length === 0 && !carregando && <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-500">Nenhum usuário encontrado.</td></tr>}
+            {filtrados.length === 0 && !carregando && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">Nenhum usuário encontrado.</td></tr>}
           </tbody>
         </table>
       </Cartao>
@@ -346,5 +372,91 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
         O cadastro de login da pessoa continua existindo até ser removido em <i>Firebase → Authentication → Usuários</i> (necessário apenas se ela precisar se cadastrar de novo com o mesmo e-mail).
       </Aviso>
     </div>
+  );
+}
+
+
+// ======================= MENSAGEM AOS USUÁRIOS =======================
+const LIMITE_AVISO = 500, LIMITE_EMAIL_ENVIO = 500;
+
+function EnviarMensagem({ destinatarios, auditar, fechar }: { destinatarios: UsuarioApp[]; auditar: Auditar; fechar: () => void }) {
+  const [noApp, setNoApp] = useState(true);
+  const [porEmail, setPorEmail] = useState(false);
+  const [assunto, setAssunto] = useState("");
+  const [texto, setTexto] = useState("");
+  const [dias, setDias] = useState(7);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [ok, setOk] = useState("");
+
+  const comEmail = destinatarios.filter((u) => u.email);
+  const tamanhoAviso = assunto.trim().length + texto.trim().length + 3;
+  const grande = noApp && tamanhoAviso > LIMITE_AVISO;
+
+  async function enviar(e: FormEvent) {
+    e.preventDefault(); setErro(""); setOk("");
+    const a = assunto.trim(), t = texto.trim();
+    if (!noApp && !porEmail) return setErro("Escolha pelo menos um canal: no aplicativo ou por e-mail.");
+    if (a.length < 3 || t.length < 3) return setErro("Preencha o assunto e a mensagem.");
+    if (grande) return setErro(`Para o aviso no aplicativo, assunto + mensagem devem ter até ${LIMITE_AVISO} caracteres (agora ${tamanhoAviso}).`);
+    if (porEmail && comEmail.length > LIMITE_EMAIL_ENVIO) return setErro(`Por e-mail, envie para no máximo ${LIMITE_EMAIL_ENVIO} pessoas por vez. Use os filtros para dividir.`);
+    if (!confirm(`Enviar para ${destinatarios.length} usuário(s)${noApp ? " no aplicativo" : ""}${noApp && porEmail ? " e" : ""}${porEmail ? " por e-mail" : ""}?`)) return;
+
+    setEnviando(true);
+    const falhas: string[] = [];
+    let app = 0, mail = 0;
+    if (noApp) {
+      try {
+        const expiraEm = Timestamp.fromMillis(Date.now() + dias * 86_400_000);
+        for (let i = 0; i < destinatarios.length; i += 400) {
+          const lote = writeBatch(db);
+          destinatarios.slice(i, i + 400).forEach((u) => lote.set(doc(collection(db, "notificacoes")), {
+            uid: u.id, protocoloId: "", tipo: "aviso", mensagem: `${a}\n${t}`, criadoEm: serverTimestamp(), expiraEm,
+          }));
+          await lote.commit(); app += Math.min(400, destinatarios.length - i);
+        }
+      } catch (err) { falhas.push(`Aviso no aplicativo: ${mensagemDeErro(err)}`); }
+    }
+    if (porEmail) {
+      for (let i = 0; i < comEmail.length; i += 100) {
+        const m = await enviarEmailUsuarios(comEmail.slice(i, i + 100).map((u) => u.email), a, t);
+        if (m) { falhas.push(`E-mail: ${m}`); break; }
+        mail += Math.min(100, comEmail.length - i);
+      }
+    }
+    await auditar("mensagem.enviar", `${destinatarios.length} usuário(s)`, `${a} | app: ${app} | e-mail: ${mail}`);
+    setEnviando(false);
+    if (falhas.length) setErro(falhas.join(" "));
+    if (app || mail) { setOk(`Enviado: ${app} aviso(s) no aplicativo e ${mail} e-mail(s).`); setTexto(""); setAssunto(""); }
+  }
+
+  return (
+    <Cartao className="space-y-3 border-brand">
+      <h3 className="font-semibold">Nova mensagem para {destinatarios.length} usuário(s)</h3>
+      <form onSubmit={enviar} className="space-y-3">
+        <fieldset className="flex flex-wrap gap-4 text-sm">
+          <legend className="mb-1 text-sm font-medium">Enviar por</legend>
+          <label className="flex items-center gap-2"><input type="checkbox" className="size-4" checked={noApp} onChange={(e) => setNoApp(e.target.checked)} /> Aviso no aplicativo</label>
+          <label className="flex items-center gap-2"><input type="checkbox" className="size-4" checked={porEmail} onChange={(e) => setPorEmail(e.target.checked)} /> E-mail ({comEmail.length} com e-mail)</label>
+        </fieldset>
+        <Campo rotulo="Assunto" value={assunto} onChange={(e) => setAssunto(e.target.value)} maxLength={120} required />
+        <label className="block text-sm"><span className="mb-1 block font-medium">Mensagem</span>
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={5} maxLength={porEmail && !noApp ? 2000 : LIMITE_AVISO} required className="w-full rounded-lg border px-3 py-2" /></label>
+        {noApp && <p className={`text-xs ${grande ? "text-red-700" : "text-slate-500"}`}>Aviso no aplicativo: {tamanhoAviso}/{LIMITE_AVISO} caracteres (assunto + mensagem).</p>}
+        {noApp && (
+          <label className="block text-sm">O aviso fica visível por{" "}
+            <select value={dias} onChange={(e) => setDias(Number(e.target.value))} className="rounded-lg border bg-white px-2 py-1.5">
+              <option value={2}>2 dias</option><option value={7}>7 dias</option><option value={15}>15 dias</option><option value={30}>30 dias</option>
+            </select> e some sozinho.</label>
+        )}
+        {porEmail && <Aviso tipo="info">O e-mail sai do remetente configurado no Cloudflare (RESEND_FROM). No plano gratuito do Resend o limite é de cerca de 100 e-mails por dia.</Aviso>}
+        {erro && <Aviso>{erro}</Aviso>}
+        {ok && <Aviso tipo="ok">{ok}</Aviso>}
+        <div className="flex gap-2">
+          <Botao type="submit" disabled={enviando}>{enviando ? "Enviando…" : "Enviar"}</Botao>
+          <Botao type="button" variante="secundario" onClick={fechar}>Fechar</Botao>
+        </div>
+      </form>
+    </Cartao>
   );
 }
