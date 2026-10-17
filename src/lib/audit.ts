@@ -1,4 +1,4 @@
-import { auth } from "./firebase";
+import { auth, tokenAppCheck } from "./firebase";
 
 // Envia por e-mail o registro de uma ação do administrador (nada é gravado no banco).
 export async function registrarAuditoria(acao: string, alvo: string, detalhe = ""): Promise<boolean> {
@@ -7,7 +7,7 @@ export async function registrarAuditoria(acao: string, alvo: string, detalhe = "
     if (!token) return false;
     const r = await fetch("/api/auditoria", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "X-Firebase-AppCheck": await tokenAppCheck() },
       body: JSON.stringify({ acao, alvo, detalhe }),
     });
     return r.ok;
@@ -23,7 +23,7 @@ export async function enviarEmailUsuarios(emails: string[], assunto: string, tex
     if (!token) return "Sessão expirada. Entre novamente.";
     const r = await fetch("/api/mensagem", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "X-Firebase-AppCheck": await tokenAppCheck() },
       body: JSON.stringify({ emails, assunto, texto }),
     });
     if (r.ok) return "";

@@ -40,7 +40,7 @@ export async function exigirAdmin(request: Request, projectId: string): Promise<
   if (!user) return resp(401, { error: "Token inválido." });
   const r = await fetch(
     `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/equipe/${encodeURIComponent(user.email)}`,
-    { headers: { Authorization: `Bearer ${idToken}` } },
+    { headers: { Authorization: `Bearer ${idToken}`, ...(request.headers.get("X-Firebase-AppCheck") ? { "X-Firebase-AppCheck": request.headers.get("X-Firebase-AppCheck")! } : {}) } },
   );
   if (!r.ok) return resp(403, { error: "Sem permissão." });
   const doc: any = await r.json();
