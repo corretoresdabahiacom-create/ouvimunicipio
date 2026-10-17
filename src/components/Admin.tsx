@@ -8,6 +8,7 @@ import { registrarAuditoria } from "../lib/audit";
 import type { MembroEquipe, Secretaria } from "../lib/types";
 import { Aviso, Botao, Campo, Cartao, Carregando } from "./ui";
 import { Aparencia, Publicidade, Usuarios } from "./AdminExtra";
+import { Indicadores, Relatorios } from "./AdminRelatorios";
 
 function useColecao<T>(nome: string, mapear: (id: string, d: Record<string, unknown>) => T) {
   const [dados, setDados] = useState<T[] | null>(null);
@@ -21,7 +22,7 @@ function useColecao<T>(nome: string, mapear: (id: string, d: Record<string, unkn
 const PAPEL_ROTULO = { admin: "Administrador", secretario: "Secretário(a)", assessor: "Assessor(a)" } as const;
 
 export function PainelAdmin() {
-  const [aba, setAba] = useState<"secretarias" | "equipe" | "usuarios" | "aparencia" | "publicidade">("secretarias");
+  const [aba, setAba] = useState<"secretarias" | "equipe" | "usuarios" | "aparencia" | "publicidade" | "indicadores" | "relatorios">("secretarias");
   const [aviso, setAviso] = useState("");
   const sec = useColecao<Secretaria>("secretarias", (id, d) => ({ id, nome: String(d.nome), ativa: d.ativa === true }));
   const eq = useColecao<MembroEquipe>("equipe", (id, d) => ({ email: id, nome: String(d.nome), papel: d.papel as MembroEquipe["papel"], secretariaId: d.secretariaId as string | undefined, ativo: d.ativo === true }));
@@ -36,7 +37,7 @@ export function PainelAdmin() {
     <div className="space-y-3">
       <h2 className="text-lg font-semibold">Administração</h2>
       <div role="tablist" className="flex gap-2 overflow-x-auto pb-1">
-        {([["secretarias", "Secretarias"], ["equipe", "Servidores"], ["usuarios", "Usuários"], ["aparencia", "Aparência"], ["publicidade", "Publicidade"]] as const).map(([a, rotulo]) => (
+        {([["secretarias", "Secretarias"], ["equipe", "Servidores"], ["indicadores", "Indicadores"], ["usuarios", "Usuários"], ["relatorios", "Relatórios"], ["aparencia", "Aparência"], ["publicidade", "Publicidade"]] as const).map(([a, rotulo]) => (
           <button key={a} role="tab" aria-selected={aba === a} onClick={() => setAba(a)}
             className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${aba === a ? "bg-brand text-white" : "border bg-white text-slate-700"}`}>
             {rotulo}
@@ -47,6 +48,8 @@ export function PainelAdmin() {
       {aviso && <Aviso tipo="info">{aviso}</Aviso>}
       {aba === "secretarias" ? <Secretarias lista={sec.dados} equipe={eq.dados} auditar={auditar} />
         : aba === "equipe" ? <Equipe lista={eq.dados} secretarias={sec.dados} auditar={auditar} />
+        : aba === "indicadores" ? <Indicadores secretarias={sec.dados} />
+        : aba === "relatorios" ? <Relatorios auditar={auditar} />
         : aba === "usuarios" ? <Usuarios auditar={auditar} />
         : aba === "aparencia" ? <Aparencia auditar={auditar} />
         : <Publicidade auditar={auditar} />}
@@ -162,7 +165,7 @@ function Equipe({ lista, secretarias, auditar }: { lista: MembroEquipe[]; secret
         {[...lista].sort((a, b) => a.nome.localeCompare(b.nome)).map((m) => (
           <li key={m.email} className="flex flex-wrap items-center justify-between gap-2 py-2">
             <div className={m.ativo ? "" : "opacity-50"}>
-              <p className="font-medium">{m.nome} <span className="text-xs font-normal text-slate-500">· {PAPEL_ROTULO[m.papel]}</span></p>
+              <p className="font-medium">{m.nome} <span className="text-xs font-normal text-slate-600">· {PAPEL_ROTULO[m.papel]}</span></p>
               <p className="text-sm text-slate-600">{m.email}{m.secretariaId ? ` · ${secretarias.find((s) => s.id === m.secretariaId)?.nome ?? "secretaria removida"}` : ""}{m.ativo ? "" : " · inativo"}</p>
             </div>
             <span className="flex">

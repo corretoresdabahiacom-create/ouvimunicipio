@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { deleteField, doc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { deleteField, deleteDoc, doc, getDocs, collection, query, updateDoc, where } from "firebase/firestore";
+import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
+import { auth, db } from "../lib/firebase";
+import { LinkLegal } from "./Legal";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { Aviso, Botao, Campo, Cartao } from "./ui";
@@ -29,6 +31,7 @@ export function Perfil() {
   }
 
   return (
+    <div className="space-y-4">
     <Cartao>
       <h2 className="mb-4 text-lg font-semibold">Meus dados</h2>
       <form onSubmit={salvar} className="space-y-3">
@@ -39,6 +42,55 @@ export function Perfil() {
         {msg && <Aviso tipo="ok">{msg}</Aviso>}
         <Botao type="submit" carregando={ocupado}>Salvar</Botao>
       </form>
+    </Cartao>
+    <ExcluirConta />
+    <p className="text-center text-sm"><LinkLegal /></p>
+    </div>
+  );
+}
+
+function ExcluirConta() {
+  const { perfil } = useAuth();
+  const [aberto, setAberto] = useState(false);
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  if (!perfil) return null;
+
+  if (perfil.papel !== "cidadao") return (
+    <Cartao><h2 className="mb-2 font-semibold">Excluir minha conta</h2>
+      <p className="text-sm text-slate-700">Contas da equipe da prefeitura são removidas pelo administrador.</p></Cartao>
+  );
+
+  async function excluir(e: FormEvent) {
+    e.preventDefault(); setErro("");
+    const user = auth.currentUser;
+    if (!user?.email) return;
+    if (!confirm("Excluir sua conta de forma definitiva? Isso não pode ser desfeito.")) return;
+    setOcupado(true);
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, senha));
+      const ns = await getDocs(query(collection(db, "notificacoes"), where("uid", "==", user.uid)));
+      await Promise.all(ns.docs.map((d) => deleteDoc(d.ref)));
+      await updateDoc(doc(db, "users", user.uid), { situacao: "excluido", nome: "(removido)", email: "", telefone: deleteField() });
+      await deleteUser(user);
+    } catch (err) { setErro(mensagemDeErro(err)); setOcupado(false); }
+  }
+
+  return (
+    <Cartao className="space-y-3">
+      <h2 className="font-semibold">Excluir minha conta</h2>
+      {!aberto ? <Botao variante="secundario" onClick={() => setAberto(true)}>Quero excluir minha conta</Botao> : (
+        <form onSubmit={excluir} className="space-y-3">
+          <Aviso tipo="info">Apagamos seu nome, e-mail, telefone e o seu login. Mensagens que você já enviou continuam disponíveis apenas à secretaria até 30 dias após a conclusão do protocolo, sem ligação com o seu nome. Não dá para desfazer.</Aviso>
+          <Campo rotulo="Digite sua senha para confirmar" type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="current-password" required />
+          {erro && <Aviso>{erro}</Aviso>}
+          <div className="flex gap-2">
+            <Botao type="submit" variante="perigo" carregando={ocupado}>Excluir definitivamente</Botao>
+            <Botao type="button" variante="secundario" onClick={() => { setAberto(false); setSenha(""); setErro(""); }}>Cancelar</Botao>
+          </div>
+        </form>
+      )}
     </Cartao>
   );
 }

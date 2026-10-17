@@ -9,6 +9,11 @@ const MAPA: Record<string, string> = {
   "auth/network-request-failed": "Sem conexão com a internet.",
   "auth/user-disabled": "Conta desativada. Procure a prefeitura.",
   "permission-denied": "Você não tem permissão para esta ação.",
+  "auth/requires-recent-login": "Por segurança, entre novamente e tente de novo.",
+  "resource-exhausted": "O limite diário de uso do serviço foi atingido. Tente novamente amanhã.",
+  "unauthenticated": "Sua sessão expirou. Entre novamente.",
+  "not-found": "Item não encontrado.",
+  "already-exists": "Já existe um registro igual. Tente novamente.",
   "unavailable": "Serviço indisponível. Tente novamente.",
 };
 

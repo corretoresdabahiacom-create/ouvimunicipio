@@ -26,7 +26,7 @@ export function Instalar() {
       <Cartao className="space-y-3 text-center">
         <p className="text-slate-700">Aponte a câmera do celular para o QR Code e abra o link para instalar.</p>
         {qr && <img src={qr} alt={`QR Code para abrir ${url}`} className="mx-auto size-56 rounded-lg border bg-white p-2" />}
-        <p className="break-all text-xs text-slate-500">{url}</p>
+        <p className="break-all text-xs text-slate-600">{url}</p>
       </Cartao>
       <Cartao className="space-y-3">
         {instalado

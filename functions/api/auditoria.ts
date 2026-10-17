@@ -27,6 +27,8 @@ const ACOES: Record<string, string> = {
   "usuario.desbloquear": "Usuário desbloqueado",
   "usuario.excluir": "Usuário excluído",
   "mensagem.enviar": "Mensagem enviada a usuários",
+  "exportacao.csv": "Exportação de dados (CSV)",
+  "backup.config": "Backup de configuração baixado",
 };
 
 export async function onRequestPost(context: { request: Request; env: Env }) {

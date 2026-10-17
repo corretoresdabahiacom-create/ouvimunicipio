@@ -1,36 +1,56 @@
-import { useState, type FormEvent } from "react";
-import { collection, doc, serverTimestamp, Timestamp, writeBatch } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { useAuth } from "../lib/useAuth";
-import { mensagemDeErro } from "../lib/erros";
-import type { Protocolo } from "../lib/types";
-import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, diasRestantes } from "./ui";
-import { ProtocoloDetalhe, usarProtocolos } from "./Cidadao";
+import { TIPOS, type Protocolo } from "../lib/types";
+import { Aviso, Carregando, Cartao, Selo, dataBR, diasRestantes } from "./ui";
+import { usarProtocolos } from "./Cidadao";
+import { ProtocoloDetalhe, useLimpezaConversas } from "./Conversa";
+
+type Aba = "aguardando" | "respondidas" | "concluidas";
+
+// "Aguardando": sem 1ª resposta, ou o cidadão escreveu depois da última resposta.
+const aguardando = (p: Protocolo) => p.status === "aberto" || (p.status === "respondido" && p.ultimaMsgPor === "cidadao");
 
 export function PainelSecretaria() {
   const { perfil } = useAuth();
   const { lista, erro } = usarProtocolos("secretariaId", perfil?.secretariaId);
-  const [aba, setAba] = useState<"aberto" | "respondido">("aberto");
+  useLimpezaConversas(lista);
+  const [aba, setAba] = useState<Aba>("aguardando");
   const [sel, setSel] = useState<string | null>(null);
 
   if (!perfil?.secretariaId) return <Aviso>Seu cadastro não está vinculado a uma secretaria. Procure o administrador.</Aviso>;
   if (lista === null) return <Carregando />;
 
   const atual = sel ? lista.find((p) => p.id === sel) : null;
-  if (atual) return <ProtocoloDetalhe p={atual} voltar={() => setSel(null)}>{atual.status === "aberto" && <FormResposta p={atual} aoResponder={() => setSel(null)} />}</ProtocoloDetalhe>;
+  if (atual) return <ProtocoloDetalhe p={atual} voltar={() => setSel(null)} eu="servidor" />;
 
-  const filtrados = lista.filter((p) => p.status === aba)
-    .sort((a, b) => aba === "aberto" ? (a.criadoEm?.toMillis?.() ?? 0) - (b.criadoEm?.toMillis?.() ?? 0) : 0);
-  const abertos = lista.filter((p) => p.status === "aberto").length;
+  const porAba: Record<Aba, Protocolo[]> = {
+    aguardando: lista.filter(aguardando),
+    respondidas: lista.filter((p) => p.status === "respondido" && !aguardando(p)),
+    concluidas: lista.filter((p) => p.status === "concluido"),
+  };
+  const filtrados = [...porAba[aba]].sort((a, b) => aba === "aguardando"
+    ? (a.criadoEm?.toMillis?.() ?? 0) - (b.criadoEm?.toMillis?.() ?? 0)
+    : (b.criadoEm?.toMillis?.() ?? 0) - (a.criadoEm?.toMillis?.() ?? 0));
+
+  // alerta de prazo: protocolos sem 1ª resposta com 5 dias ou menos
+  const urgentes = lista.filter((p) => p.status === "aberto" && (diasRestantes(p) ?? 99) <= 5);
+  const vencidos = urgentes.filter((p) => (diasRestantes(p) ?? 0) < 0).length;
 
   return (
     <div className="space-y-3">
       <h2 className="text-lg font-semibold">Mensagens recebidas</h2>
-      <div role="tablist" className="flex gap-2">
-        {(["aberto", "respondido"] as const).map((a) => (
+      {urgentes.length > 0 && (
+        <div role="alert" className="flex gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <p><b>{urgentes.length}</b> {urgentes.length === 1 ? "protocolo vence" : "protocolos vencem"} em até 5 dias{vencidos > 0 ? ` (${vencidos} já vencido${vencidos > 1 ? "s" : ""})` : ""}. Responda primeiro os mais antigos, na aba Aguardando.</p>
+        </div>
+      )}
+      <div role="tablist" className="flex gap-2 overflow-x-auto">
+        {([["aguardando", `Aguardando (${porAba.aguardando.length})`], ["respondidas", "Respondidas"], ["concluidas", "Concluídas"]] as const).map(([a, rotulo]) => (
           <button key={a} role="tab" aria-selected={aba === a} onClick={() => setAba(a)}
-            className={`rounded-full px-4 py-2 text-sm font-semibold ${aba === a ? "bg-brand text-white" : "bg-white text-slate-700 border"}`}>
-            {a === "aberto" ? `Aguardando (${abertos})` : "Respondidas"}
+            className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${aba === a ? "bg-brand text-white" : "border bg-white text-slate-700"}`}>
+            {rotulo}
           </button>
         ))}
       </div>
@@ -40,56 +60,16 @@ export function PainelSecretaria() {
         const d = diasRestantes(p);
         return (
           <button key={p.id} onClick={() => setSel(p.id)} className="block w-full rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-brand">
-            <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs text-slate-500">{p.numero}</span><Selo status={p.status} /></div>
-            <p className="mt-1 font-semibold">{p.assunto}</p>
-            <p className="line-clamp-2 text-sm text-slate-600">{p.mensagem}</p>
-            <p className="mt-1 text-xs text-slate-500">{dataBR(p.criadoEm)}{p.status === "aberto" && d !== null && <span className={d <= 5 ? " font-semibold text-red-700" : ""}> · prazo: {d >= 0 ? `${d} dias` : "vencido"}</span>}</p>
+            <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs text-slate-600">{p.numero}</span><Selo status={p.status} /></div>
+            <p className="mt-1 font-semibold">{TIPOS[p.tipo] ?? p.assunto ?? "Manifestação"}</p>
+            <p className="text-sm text-slate-700">Enviado em {dataBR(p.criadoEm)}</p>
+            <p className="mt-1 text-xs">
+              {p.status === "respondido" && p.ultimaMsgPor === "cidadao" && <span className="font-semibold text-blue-800">O cidadão respondeu · </span>}
+              {p.status === "aberto" && d !== null && <span className={d <= 5 ? "font-semibold text-red-800" : "text-slate-700"}>prazo: {d >= 0 ? `${d} dias` : "vencido"}</span>}
+            </p>
           </button>
         );
       })}
     </div>
-  );
-}
-
-function FormResposta({ p, aoResponder }: { p: Protocolo; aoResponder: () => void }) {
-  const { perfil } = useAuth();
-  const [texto, setTexto] = useState("");
-  const [erro, setErro] = useState("");
-  const [ocupado, setOcupado] = useState(false);
-
-  async function responder(e: FormEvent) {
-    e.preventDefault();
-    if (!perfil) return;
-    if (texto.trim().length < 3) return setErro("Escreva a resposta.");
-    setErro(""); setOcupado(true);
-    try {
-      const batch = writeBatch(db);
-      batch.update(doc(db, "protocolos", p.id), {
-        status: "respondido", resposta: texto.trim(), respondidoPor: perfil.uid, respondidoEm: serverTimestamp(),
-      });
-      batch.set(doc(collection(db, "notificacoes")), {
-        uid: p.autorUid, protocoloId: p.id, tipo: "resposta",
-        mensagem: `Seu protocolo ${p.numero} foi respondido. Atenção: este aviso será apagado em 24 horas. A resposta continua disponível no protocolo.`,
-        criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 24 * 3600_000),
-      });
-      await batch.commit();
-      aoResponder();
-    } catch (err) { setErro(mensagemDeErro(err)); }
-    finally { setOcupado(false); }
-  }
-
-  return (
-    <Cartao>
-      <form onSubmit={responder} className="space-y-3">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium">Sua resposta ao cidadão</span>
-          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={6} maxLength={5000} required
-            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
-        </label>
-        <Aviso tipo="info">O cidadão será avisado. O aviso some em 24 horas, mas a resposta fica no protocolo. A resposta não pode ser alterada depois.</Aviso>
-        {erro && <Aviso>{erro}</Aviso>}
-        <Botao type="submit" carregando={ocupado}>Enviar resposta</Botao>
-      </form>
-    </Cartao>
   );
 }

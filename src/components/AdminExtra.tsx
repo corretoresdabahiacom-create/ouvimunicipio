@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   addDoc, collection, deleteDoc, deleteField, doc, getCountFromServer, getDocs, limit, onSnapshot, orderBy, query,
-  serverTimestamp, setDoc, startAfter, Timestamp, updateDoc, where, writeBatch, type QueryDocumentSnapshot,
+  serverTimestamp, setDoc, startAfter, Timestamp, updateDoc, where, writeBatch, type Query, type QueryDocumentSnapshot, type QuerySnapshot,
 } from "firebase/firestore";
 import { ArrowDown, ArrowUp, Ban, ImagePlus, Mail, Pencil, Trash2, Undo2 } from "lucide-react";
 import { db } from "../lib/firebase";
@@ -9,6 +9,7 @@ import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { imagemParaDataUrl } from "../lib/media";
 import { enviarEmailUsuarios } from "../lib/audit";
+import { baixarCSV } from "./AdminRelatorios";
 import { contrasteComBranco, escurecer, HEX_OK, linkSeguro, useSite, type Anuncio } from "../lib/useConfig";
 import type { UsuarioApp } from "../lib/types";
 import { Aviso, Botao, Campo, Cartao, Carregando, dataBR } from "./ui";
@@ -24,6 +25,7 @@ export function Aparencia({ auditar }: { auditar: Auditar }) {
   const [nome, setNome] = useState(site.nome);
   const [cor, setCor] = useState(site.cor);
   const [logo, setLogo] = useState(site.logo);
+  const [contato, setContato] = useState(site.contato);
   const [msg, setMsg] = useState("");
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -47,7 +49,7 @@ export function Aparencia({ auditar }: { auditar: Auditar }) {
     if (contraste < 4.5) return setErro("A cor está clara demais: o texto branco ficaria difícil de ler. Escolha uma cor mais escura.");
     setOcupado(true);
     try {
-      await setDoc(doc(db, "config", "site"), { nome: nome.trim(), cor: cor.toLowerCase(), logo, atualizadoEm: serverTimestamp() });
+      await setDoc(doc(db, "config", "site"), { nome: nome.trim(), cor: cor.toLowerCase(), logo, contato: contato.trim(), atualizadoEm: serverTimestamp() });
       setMsg("Aparência salva. Já vale para todos os usuários.");
       await auditar("config.editar", nome.trim(), `cor ${cor}${logo ? ", com logomarca" : ", sem logomarca"}`);
     } catch (err) { setErro(mensagemDeErro(err)); }
@@ -58,6 +60,7 @@ export function Aparencia({ auditar }: { auditar: Auditar }) {
     <Cartao className="space-y-4">
       <form onSubmit={salvar} className="space-y-4">
         <Campo rotulo="Nome do município (aparece na tela inicial)" value={nome} onChange={(e) => setNome(e.target.value)} maxLength={120} required dica='Exemplo: "Prefeitura Municipal de Rio Preto"' />
+        <Campo rotulo="Contato do encarregado de dados / ouvidoria (LGPD)" value={contato} onChange={(e) => setContato(e.target.value)} maxLength={120} dica="E-mail ou telefone que aparece na Política de Privacidade." />
 
         <div>
           <p className="mb-1 text-sm font-medium text-slate-700">Logomarca da prefeitura</p>
@@ -69,7 +72,7 @@ export function Aparencia({ auditar }: { auditar: Auditar }) {
               {logo && <Botao type="button" variante="link" onClick={() => setLogo("")}>Remover logomarca</Botao>}
             </div>
           </div>
-          <p className="mt-1 text-xs text-slate-500">PNG com fundo transparente funciona melhor. A imagem é reduzida automaticamente.</p>
+          <p className="mt-1 text-xs text-slate-600">PNG com fundo transparente funciona melhor. A imagem é reduzida automaticamente.</p>
         </div>
 
         <div>
@@ -180,7 +183,7 @@ export function Publicidade({ auditar }: { auditar: Auditar }) {
           <div>
             <input ref={arq} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => escolher(e.target.files?.[0])} />
             <Botao type="button" variante="secundario" onClick={() => arq.current?.click()}><ImagePlus className="size-4" aria-hidden /> {imagem ? "Trocar imagem" : "Escolher imagem"}</Botao>
-            <p className="mt-1 text-xs text-slate-500">Formato ideal: 3 por 1 (ex.: 1200 × 400). Imagens de outros formatos são cortadas ao centro.</p>
+            <p className="mt-1 text-xs text-slate-600">Formato ideal: 3 por 1 (ex.: 1200 × 400). Imagens de outros formatos são cortadas ao centro.</p>
             {imagem && <img src={imagem} alt="Pré-visualização do anúncio" className="mt-2 aspect-[3/1] w-full rounded-lg border object-cover" />}
           </div>
           {erro && <Aviso>{erro}</Aviso>}
@@ -196,8 +199,8 @@ export function Publicidade({ auditar }: { auditar: Auditar }) {
         <Cartao key={a.id} className={`flex gap-3 ${a.ativo ? "" : "opacity-60"}`}>
           <img src={a.imagem} alt="" className="aspect-[3/1] w-32 shrink-0 rounded border object-cover sm:w-44" />
           <div className="min-w-0 flex-1">
-            <p className="truncate font-medium">{a.titulo} {!a.ativo && <span className="text-xs text-slate-500">(inativo)</span>}</p>
-            <p className="truncate text-xs text-slate-500">{a.link || "sem link"}</p>
+            <p className="truncate font-medium">{a.titulo} {!a.ativo && <span className="text-xs text-slate-600">(inativo)</span>}</p>
+            <p className="truncate text-xs text-slate-600">{a.link || "sem link"}</p>
             <div className="mt-1 flex flex-wrap items-center">
               <button aria-label="Subir" disabled={i === 0} className="p-2 disabled:opacity-30" onClick={() => mover(a, -1)}><ArrowUp className="size-4" /></button>
               <button aria-label="Descer" disabled={i === lista.length - 1} className="p-2 disabled:opacity-30" onClick={() => mover(a, 1)}><ArrowDown className="size-4" /></button>
@@ -239,6 +242,8 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
   const [periodo, setPeriodo] = useState<"todos" | "7" | "30" | "90">("todos");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [msgAberta, setMsgAberta] = useState(false);
+  const [todosServidor, setTodosServidor] = useState<UsuarioApp[] | null>(null);
+  const [buscandoTodos, setBuscandoTodos] = useState(false);
 
   async function contar() {
     try {
@@ -285,6 +290,38 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
     const base = sel.size > 0 ? itens.filter((u) => sel.has(u.id)) : filtrados;
     return base.filter((u) => u.situacao === "ativo" && u.id !== perfil?.uid);
   }, [sel, itens, filtrados, perfil]);
+  // Envio em massa: busca no servidor TODOS os ativos (respeitando o período), sem depender da tabela carregada.
+  async function buscarTodosAtivos() {
+    setBuscandoTodos(true); setErro("");
+    try {
+      const col = collection(db, "users");
+      const desde = periodo === "todos" ? null : Timestamp.fromMillis(Date.now() - Number(periodo) * 86_400_000);
+      const out: UsuarioApp[] = [];
+      let cursor: QueryDocumentSnapshot | null = null;
+      while (out.length < 5000) {
+        const q: Query = desde
+          ? query(col, where("criadoEm", ">=", desde), orderBy("criadoEm"), ...(cursor ? [startAfter(cursor)] : []), limit(500))
+          : query(col, where("situacao", "==", "ativo"), ...(cursor ? [startAfter(cursor)] : []), limit(500));
+        const snap: QuerySnapshot = await getDocs(q);
+        snap.docs.forEach((d) => {
+          if ((d.get("situacao") ?? "ativo") === "ativo" && d.id !== perfil?.uid)
+            out.push({ id: d.id, nome: d.get("nome") ?? "", email: d.get("email") ?? "", telefone: d.get("telefone") ?? undefined, situacao: "ativo", criadoEm: d.get("criadoEm") ?? null });
+        });
+        cursor = snap.docs[snap.docs.length - 1] ?? null;
+        if (snap.docs.length < 500) break;
+      }
+      setTodosServidor(out); setMsgAberta(true);
+    } catch (e) { setErro(mensagemDeErro(e)); }
+    finally { setBuscandoTodos(false); }
+  }
+  function exportarFiltrados() {
+    if (!confirm("O arquivo terá nome, e-mail e telefone (dados pessoais). Guarde com cuidado. Continuar?")) return;
+    baixarCSV(`usuarios-filtrados-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ["Nome", "E-mail", "Telefone", "Situação", "Cadastro em"],
+      ...filtrados.map((u) => [u.nome, u.email, u.telefone ?? "", u.situacao, u.criadoEm ? dataBR(u.criadoEm) : ""]),
+    ]);
+    void auditar("exportacao.csv", "usuários (filtro)", `${filtrados.length} linhas`);
+  }
   const alternar = (id: string) => setSel((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const marcaveis = filtrados.filter((u) => u.situacao === "ativo" && u.id !== perfil?.uid);
 
@@ -322,25 +359,27 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
             </select></label>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={soTel} onChange={(e) => setSoTel(e.target.checked)} className="size-4" /> Só com telefone</label>
         </div>
-        <p className="text-xs text-slate-500">A busca vale para os {itens.length} usuários já carregados{fim ? " (todos)" : ""}. Mostrando {filtrados.length}.</p>
+        <p className="text-xs text-slate-600">A busca vale para os {itens.length} usuários já carregados{fim ? " (todos)" : ""}. Mostrando {filtrados.length}.</p>
       </Cartao>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Botao onClick={() => setMsgAberta(true)} disabled={destinatarios.length === 0}><Mail className="mr-1 inline size-4" aria-hidden />Enviar mensagem a {destinatarios.length} {destinatarios.length === 1 ? "usuário" : "usuários"}</Botao>
-        <span className="text-xs text-slate-500">{sel.size > 0 ? `${sel.size} marcado(s)` : "Nenhum marcado: vai para todos que aparecem no filtro"}</span>
+        <Botao onClick={() => { setTodosServidor(null); setMsgAberta(true); }} disabled={destinatarios.length === 0}><Mail className="mr-1 inline size-4" aria-hidden />Enviar mensagem a {destinatarios.length} {destinatarios.length === 1 ? "usuário" : "usuários"}</Botao>
+        <span className="text-xs text-slate-600">{sel.size > 0 ? `${sel.size} marcado(s)` : "Nenhum marcado: vai para todos que aparecem no filtro"}</span>
         {sel.size > 0 && <Botao variante="link" onClick={() => setSel(new Set())}>Limpar seleção</Botao>}
+        <Botao variante="secundario" onClick={buscarTodosAtivos} carregando={buscandoTodos}>Enviar a todos os ativos{periodo !== "todos" ? ` (cadastro: últimos ${periodo} dias)` : ""}</Botao>
+        <Botao variante="secundario" onClick={exportarFiltrados} disabled={filtrados.length === 0}>Exportar lista filtrada (CSV)</Botao>
       </div>
-      {msgAberta && <EnviarMensagem destinatarios={destinatarios} auditar={auditar} fechar={() => setMsgAberta(false)} />}
+      {msgAberta && <EnviarMensagem destinatarios={todosServidor ?? destinatarios} auditar={auditar} fechar={() => { setMsgAberta(false); setTodosServidor(null); }} />}
 
       {erro && <Aviso>{erro}</Aviso>}
       <Cartao className="overflow-x-auto p-0 sm:p-0">
         <table className="w-full min-w-[34rem] text-left text-sm">
-          <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500">
+          <thead className="border-b bg-slate-50 text-xs uppercase text-slate-600">
             <tr><th className="w-8 px-3 py-2"><input type="checkbox" className="size-4" aria-label="Marcar todos os listados" checked={marcaveis.length > 0 && marcaveis.every((u) => sel.has(u.id))} onChange={(e) => setSel(e.target.checked ? new Set(marcaveis.map((u) => u.id)) : new Set())} /></th><th className="px-3 py-2">Nome</th><th className="px-3 py-2">E-mail</th><th className="px-3 py-2">Telefone</th><th className="px-3 py-2">Desde</th><th className="px-3 py-2 text-right">Ações</th></tr>
           </thead>
           <tbody className="divide-y">
             {filtrados.map((u) => (
-              <tr key={u.id} className={u.situacao === "ativo" ? "" : "bg-slate-50 text-slate-500"}>
+              <tr key={u.id} className={u.situacao === "ativo" ? "" : "bg-slate-50 text-slate-600"}>
                 <td className="px-3 py-2">{u.situacao === "ativo" && u.id !== perfil?.uid && <input type="checkbox" className="size-4" aria-label={`Marcar ${u.nome || u.email}`} checked={sel.has(u.id)} onChange={() => alternar(u.id)} />}</td>
                 <td className="px-3 py-2 font-medium">{u.nome || "—"} {u.situacao === "bloqueado" && <span className="rounded bg-red-100 px-1.5 text-xs text-red-800">bloqueado</span>}{u.situacao === "excluido" && <span className="rounded bg-slate-200 px-1.5 text-xs">excluído</span>}</td>
                 <td className="px-3 py-2 break-all">{u.email || "—"}</td>
@@ -356,7 +395,7 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
                 </td>
               </tr>
             ))}
-            {filtrados.length === 0 && !carregando && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">Nenhum usuário encontrado.</td></tr>}
+            {filtrados.length === 0 && !carregando && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-600">Nenhum usuário encontrado.</td></tr>}
           </tbody>
         </table>
       </Cartao>
@@ -442,7 +481,7 @@ function EnviarMensagem({ destinatarios, auditar, fechar }: { destinatarios: Usu
         <Campo rotulo="Assunto" value={assunto} onChange={(e) => setAssunto(e.target.value)} maxLength={120} required />
         <label className="block text-sm"><span className="mb-1 block font-medium">Mensagem</span>
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={5} maxLength={porEmail && !noApp ? 2000 : LIMITE_AVISO} required className="w-full rounded-lg border px-3 py-2" /></label>
-        {noApp && <p className={`text-xs ${grande ? "text-red-700" : "text-slate-500"}`}>Aviso no aplicativo: {tamanhoAviso}/{LIMITE_AVISO} caracteres (assunto + mensagem).</p>}
+        {noApp && <p className={`text-xs ${grande ? "text-red-700" : "text-slate-600"}`}>Aviso no aplicativo: {tamanhoAviso}/{LIMITE_AVISO} caracteres (assunto + mensagem).</p>}
         {noApp && (
           <label className="block text-sm">O aviso fica visível por{" "}
             <select value={dias} onChange={(e) => setDias(Number(e.target.value))} className="rounded-lg border bg-white px-2 py-1.5">

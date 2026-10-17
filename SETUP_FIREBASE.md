@@ -63,3 +63,12 @@ Em **Admin → Usuários**: filtre, marque as pessoas (ou deixe nenhuma marcada 
 - **Aviso no aplicativo**: aparece na aba Avisos por 2–30 dias e some sozinho (não precisa de nada além das regras novas).
 - **E-mail**: usa `/api/mensagem` (Cloudflare) com `RESEND_API_KEY` e, para entregar a qualquer pessoa, `RESEND_FROM` de um domínio verificado no Resend. Até 500 pessoas por envio.
 - **Republique o `firestore.rules`** (há uma regra nova para avisos).
+
+## Conversa, sigilo e LGPD (nova estrutura)
+- `protocolos/{número}` guarda só **metadados** (tipo, secretaria, status, datas, nota). O administrador pode ler isso (indicadores/CSV), mas **não** o texto.
+- `protocolos/{número}/mensagens/m00…m49` e `…/midias` guardam a conversa: só o autor e a secretaria destinatária leem.
+- Depois que o atendimento é **concluído**, a conversa e os anexos são apagados 30 dias depois (o app faz a limpeza quando alguém abre a lista; as regras já bloqueiam apagar antes do prazo).
+- Protocolos de testes antigos (formato anterior, com texto no próprio documento) continuam aparecendo, mas o admin consegue lê-los. Apague-os no console (Firestore → protocolos) antes de usar de verdade.
+- Termos de Uso e Política de Privacidade: textos-modelo em `src/components/Legal.tsx` (revise com a assessoria jurídica). Aviso de aceite versionado em `VERSAO_TERMOS` (`src/lib/types.ts`); mudar a versão pede novo aceite de todos.
+- Cada pessoa pode excluir a própria conta em **Perfil → Excluir minha conta**.
+- **Republique o `firestore.rules`** (mudou bastante) e depois teste o fluxo completo.

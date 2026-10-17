@@ -47,7 +47,7 @@ export function Carrossel() {
           ? <a href={href} target="_blank" rel="noopener noreferrer sponsored" aria-label={`${atual.titulo} (abre em nova aba)`} className="block size-full">{img}</a>
           : img}
       </div>
-      <p className="mt-1 text-right text-[10px] uppercase tracking-wide text-slate-500">Publicidade</p>
+      <p className="mt-1 text-right text-[10px] uppercase tracking-wide text-slate-600">Publicidade</p>
       {anuncios.length > 1 && (
         <>
           <button aria-label="Anúncio anterior" onClick={() => setI((i - 1 + anuncios.length) % anuncios.length)}

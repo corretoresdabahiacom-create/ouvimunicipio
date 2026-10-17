@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, type React
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import type { Perfil, Situacao } from "./types";
+import { VERSAO_TERMOS, type Perfil, type Situacao } from "./types";
 
 interface Ctx {
   user: User | null;
@@ -28,12 +28,15 @@ async function carregarPerfil(user: User): Promise<Perfil> {
       const tel = localStorage.getItem(`tel:${user.uid}`);
       if (tel && /^[0-9]{10,13}$/.test(tel)) { novo.telefone = tel; base.telefone = tel; }
       localStorage.removeItem(`tel:${user.uid}`);
+      if (localStorage.getItem(`aceite:${user.uid}`) === VERSAO_TERMOS) { novo.aceiteVersao = VERSAO_TERMOS; novo.aceiteEm = serverTimestamp(); base.aceiteVersao = VERSAO_TERMOS; }
+      localStorage.removeItem(`aceite:${user.uid}`);
     } catch { /* ignore */ }
     await setDoc(uref, novo);
   } else {
     base.nome = usnap.get("nome") || base.nome;
     base.telefone = usnap.get("telefone") || undefined;
     base.situacao = (usnap.get("situacao") as Situacao) ?? "ativo";
+    base.aceiteVersao = usnap.get("aceiteVersao") || undefined;
     // preenche o e-mail em contas antigas (usado na lista do administrador)
     if (!usnap.get("email") && base.situacao === "ativo") { void updateDoc(uref, { email }).catch(() => undefined); }
   }

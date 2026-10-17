@@ -7,6 +7,8 @@ import { useAuth } from "../lib/useAuth";
 import { Botao, Campo, Cartao, Aviso } from "./ui";
 import { Carrossel, Logo } from "./Marca";
 import { useSite } from "../lib/useConfig";
+import { LinkLegal } from "./Legal";
+import { VERSAO_TERMOS } from "../lib/types";
 
 type Modo = "entrar" | "cadastrar" | "recuperar";
 
@@ -31,11 +33,11 @@ export function TelaAuth() {
       } else if (modo === "cadastrar") {
         if (nome.trim().length < 3) throw new Error("Informe seu nome completo.");
         if (senha.length < 8 || !/[A-Za-z]/.test(senha) || !/\d/.test(senha)) throw new Error("A senha precisa ter 8 ou mais caracteres, com letras e números.");
-        if (!aceite) throw new Error("É preciso aceitar o uso dos dados para continuar.");
+        if (!aceite) throw new Error("Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.");
         const tel = telefone.replace(/\D/g, "");
         if (tel && !/^[0-9]{10,13}$/.test(tel)) throw new Error("Telefone inválido. Use DDD + número, ou deixe em branco.");
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), senha);
-        try { if (tel) localStorage.setItem(`tel:${cred.user.uid}`, tel); } catch { /* ignore */ }
+        try { if (tel) localStorage.setItem(`tel:${cred.user.uid}`, tel); localStorage.setItem(`aceite:${cred.user.uid}`, VERSAO_TERMOS); } catch { /* ignore */ }
         await updateProfile(cred.user, { displayName: nome.trim().slice(0, 120) });
         await sendEmailVerification(cred.user);
       } else {
@@ -70,7 +72,7 @@ export function TelaAuth() {
           {modo === "cadastrar" && (
             <label className="flex items-start gap-2 text-sm text-slate-700">
               <input type="checkbox" checked={aceite} onChange={(e) => setAceite(e.target.checked)} className="mt-1 size-4" />
-              <span>Concordo que meus dados e mensagens sejam usados apenas para atender minha solicitação, conforme a LGPD.</span>
+              <span>Li e aceito os <LinkLegal>Termos de Uso e a Política de Privacidade</LinkLegal>. Meus dados serão usados apenas para atender minhas solicitações.</span>
             </label>
           )}
           {erro && <Aviso>{erro}</Aviso>}
