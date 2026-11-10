@@ -36,7 +36,8 @@ export async function exigirAdmin(request: Request, projectId: string): Promise<
   const auth = request.headers.get("Authorization") || "";
   if (!auth.startsWith("Bearer ")) return resp(401, { error: "Não autenticado." });
   const idToken = auth.slice(7);
-  const user = await verificarToken(idToken, projectId);
+  // Token malformado não pode virar erro 500: qualquer falha na verificação é "não autenticado".
+  const user = await verificarToken(idToken, projectId).catch(() => null);
   if (!user) return resp(401, { error: "Token inválido." });
   const r = await fetch(
     `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/equipe/${encodeURIComponent(user.email)}`,

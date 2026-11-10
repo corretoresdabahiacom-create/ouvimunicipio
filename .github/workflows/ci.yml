@@ -1,0 +1,35 @@
+# Verificação automática a cada envio ao GitHub: compila o app e testa as regras do Firestore.
+# Não publica nada: a publicação continua sendo feita pelo Cloudflare Pages.
+name: Verificação
+on:
+  push:
+    branches: [main, interface-nova]
+  pull_request:
+
+jobs:
+  app:
+    name: Compilar o app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  regras:
+    name: Testar as regras do Firestore (emulador)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: rules-tests/package-lock.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - name: Instalar
+        working-directory: rules-tests
+        run: npm ci
+      - name: Testar
+        working-directory: rules-tests
+        run: npm test
