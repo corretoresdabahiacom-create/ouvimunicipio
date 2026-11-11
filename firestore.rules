@@ -30,6 +30,8 @@ service cloud.firestore {
     }
     function ehAdmin()    { return naEquipe() && docEquipe().papel == 'admin'; }
     function ehServidor() { return naEquipe() && docEquipe().papel in ['secretario', 'assessor']; }
+    function ehOuvidor()  { return naEquipe() && docEquipe().papel == 'ouvidor'; }
+    function ehPrefeito() { return naEquipe() && docEquipe().papel == 'prefeito'; }
     function minhaSecretaria() { return docEquipe().secretariaId; }
 
     // ---------- perfil do usuário ----------
@@ -110,9 +112,9 @@ service cloud.firestore {
       allow create, update: if ehAdmin()
         && request.resource.data.keys().hasOnly(['nome', 'papel', 'secretariaId', 'ativo'])
         && request.resource.data.nome is string && request.resource.data.nome.size() <= 120
-        && request.resource.data.papel in ['admin', 'secretario', 'assessor']
+        && request.resource.data.papel in ['admin', 'secretario', 'assessor', 'ouvidor', 'prefeito']
         && request.resource.data.ativo is bool
-        && (request.resource.data.papel == 'admin' || (
+        && (request.resource.data.papel in ['admin', 'ouvidor', 'prefeito'] || (
               request.resource.data.secretariaId is string
               && exists(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId))))
         // o admin não pode se rebaixar nem se desativar (evita ficar sem administrador)
@@ -141,7 +143,7 @@ service cloud.firestore {
       allow get, list: if verificado() && (
         resource.data.autorUid == request.auth.uid ||
         (ehServidor() && resource.data.secretariaId == minhaSecretaria()) ||
-        ehAdmin()
+        ehAdmin() || ehOuvidor()
       );
 
       allow create: if verificado() && termosOk()
@@ -204,6 +206,24 @@ service cloud.firestore {
           && request.resource.data.prorrogacaoMotivo.size() >= 10 && request.resource.data.prorrogacaoMotivo.size() <= 300
           && request.resource.data.prorrogacaoPor == docEquipe().nome)
         ||
+        // o OUVIDOR GERAL encaminha o protocolo a outra secretaria. Cada encaminhamento gera, no mesmo lote,
+        // um registro imutável em historico/h{n} (n = encaminhamentos). Só enquanto a conversa está ativa.
+        (ehOuvidor() && resource.data.status in ['aberto', 'respondido']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['secretariaId', 'secretariaNome', 'encaminhadoEm', 'encaminhamentos'])
+          && request.resource.data.secretariaId != resource.data.secretariaId
+          && request.resource.data.encaminhadoEm == request.time
+          && request.resource.data.encaminhamentos == resource.data.get('encaminhamentos', 0) + 1
+          && request.resource.data.encaminhamentos <= 20
+          && get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.ativa == true
+          && request.resource.data.secretariaNome ==
+             get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.nome
+          && existsAfter(/databases/$(database)/documents/protocolos/$(numero)/historico/$('h' + string(request.resource.data.encaminhamentos))))
+        ||
+        // cobrança interna do ouvidor ao setor (o cidadão não vê); só em protocolo ainda sem resposta
+        (ehOuvidor() && resource.data.status == 'aberto'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cobradoEm'])
+          && request.resource.data.cobradoEm == request.time)
+        ||
         // marca que a conversa já foi apagada (só depois de 30 dias de concluído)
         ((resource.data.autorUid == request.auth.uid || (ehServidor() && resource.data.secretariaId == minhaSecretaria()))
           && prazoApagarVencido(resource.data)
@@ -221,7 +241,8 @@ service cloud.firestore {
           return pai().autorUid == request.auth.uid
             || (ehServidor() && pai().secretariaId == minhaSecretaria());
         }
-        allow read: if verificado() && participante();
+        // o ouvidor geral lê as conversas (apenas leitura) para encaminhar ao setor responsável
+        allow read: if verificado() && (participante() || ehOuvidor());
         allow create: if verificado() && termosOk()
           && mid.matches('m[0-4][0-9]')
           && request.resource.data.keys().hasOnly(['de', 'autorUid', 'texto', 'assunto', 'anexos', 'criadoEm'])
@@ -251,7 +272,8 @@ service cloud.firestore {
         function paiM() { return get(/databases/$(database)/documents/protocolos/$(numero)).data; }
         allow read: if verificado() && (
           paiM().autorUid == request.auth.uid ||
-          (ehServidor() && paiM().secretariaId == minhaSecretaria())
+          (ehServidor() && paiM().secretariaId == minhaSecretaria()) ||
+          ehOuvidor()
         );
         allow create: if basico()
           && k.matches('[0-4][0-9]_[0-4]_([0-9]|1[01])')
@@ -267,6 +289,52 @@ service cloud.firestore {
           paiM().autorUid == request.auth.uid || (ehServidor() && paiM().secretariaId == minhaSecretaria())
         ) && prazoApagarVencido(paiM());
       }
+      // Histórico de encaminhamentos: criado só pelo ouvidor geral, junto com o encaminhamento (mesmo lote), imutável.
+      // Lê: o autor, a secretaria que está com o protocolo e o ouvidor.
+      match /historico/{hid} {
+        function paiH() { return get(/databases/$(database)/documents/protocolos/$(numero)).data; }
+        allow read: if verificado() && (
+          paiH().autorUid == request.auth.uid ||
+          (ehServidor() && paiH().secretariaId == minhaSecretaria()) ||
+          ehOuvidor()
+        );
+        allow create: if ehOuvidor()
+          && hid.matches('h([1-9]|1[0-9]|20)')
+          && request.resource.data.keys().hasOnly(['de', 'deNome', 'para', 'paraNome', 'por', 'motivo', 'criadoEm'])
+          && request.resource.data.criadoEm == request.time
+          && request.resource.data.por == docEquipe().nome
+          && request.resource.data.motivo is string
+          && request.resource.data.motivo.size() >= 5 && request.resource.data.motivo.size() <= 300
+          && request.resource.data.de == paiH().secretariaId
+          && request.resource.data.deNome == paiH().secretariaNome
+          && request.resource.data.para != request.resource.data.de
+          && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.secretariaId == request.resource.data.para
+          && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.secretariaNome == request.resource.data.paraNome
+          && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.encaminhadoEm == request.time
+          && hid == 'h' + string(getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.encaminhamentos);
+        allow update, delete: if false;
+      }
+    }
+
+    // ---------- estatísticas para o prefeito (SOMENTE números, sem dados pessoais) ----------
+    // O ouvidor (ou o admin) publica um resumo agregado calculado a partir dos metadados dos protocolos.
+    // O prefeito lê só este documento: nunca protocolos, conversas, anexos ou usuários.
+    match /estatisticas/{id} {
+      allow read: if id == 'atual' && verificado() && (ehPrefeito() || ehOuvidor() || ehAdmin());
+      allow create, update: if id == 'atual' && (ehOuvidor() || ehAdmin())
+        && request.resource.data.keys().hasOnly(['geradoEm', 'geradoPor', 'total', 'porStatus', 'porTipo', 'porSecretaria',
+             'porMes', 'vencidas', 'tempoMedioRespostaDias', 'dentroPrazoPct', 'notaMedia', 'avaliacoes'])
+        && request.resource.data.geradoEm == request.time
+        && request.resource.data.geradoPor == docEquipe().nome
+        && request.resource.data.total is int && request.resource.data.vencidas is int && request.resource.data.avaliacoes is int
+        && request.resource.data.tempoMedioRespostaDias is number
+        && request.resource.data.dentroPrazoPct is number
+        && request.resource.data.notaMedia is number
+        && request.resource.data.porStatus is map && request.resource.data.porStatus.size() <= 10
+        && request.resource.data.porTipo is map && request.resource.data.porTipo.size() <= 10
+        && request.resource.data.porSecretaria is map && request.resource.data.porSecretaria.size() <= 100
+        && request.resource.data.porMes is map && request.resource.data.porMes.size() <= 60;
+      allow delete: if false;
     }
 
     // ---------- notificações (somente do dono) ----------

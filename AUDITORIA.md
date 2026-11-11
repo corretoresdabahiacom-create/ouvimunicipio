@@ -77,13 +77,19 @@ Mapa pode usar OpenStreetMap (gratuito).
 | Item do plano | Situação |
 |---|---|
 | **Prazos legais da Ouvidoria (Lei 13.460/2017, art. 16)** | **Feito, aguardando os testes.** Prazo de 30 dias; prorrogação única de +30 dias pelo servidor, com justificativa obrigatória (10 a 300 caracteres), nome e data do servidor registrados, comunicação ao cidadão (aviso no app + motivo visível no protocolo). Só vale antes da 1ª resposta e antes de vencer. Alertas em 10, 5 e 2 dias, no dia do vencimento e vencido. Aba **Vencidas** na secretaria; indicadores do administrador já consideram a prorrogação |
-| Ouvidor geral / ouvidor setorial, redistribuição de demandas, histórico de encaminhamentos | Não iniciado. **Depende de decisão:** o ouvidor lê o conteúdo das conversas ou só os dados do protocolo? E denúncias ficam restritas? |
-| Dashboard do prefeito (sem dados pessoais) | Não iniciado |
+| **Ouvidor geral** (papel `ouvidor`) | **Feito, aguardando os testes.** Decisão sua: lê o conteúdo das conversas e os dados do protocolo (só leitura, não responde pelo setor). Vê todas as secretarias, filtra por secretaria, tipo, situação e prazo, busca pelo número. **Encaminha** o protocolo a outra secretaria (motivo obrigatório; histórico imutável visível ao cidadão e às secretarias; o setor antigo perde o acesso e o novo passa a ter) e **cobra** resposta (aviso interno, o cidadão não vê). Denúncias não têm restrição extra: o ouvidor lê todas |
+| **Painel do prefeito** (papel `prefeito`) | **Feito, aguardando os testes.** Lê só um documento de números (`estatisticas/atual`): totais, por tipo, por secretaria, vencidas, evolução mensal, % no prazo, tempo médio, nota média. Nenhum protocolo, conversa ou usuário. O resumo é calculado pelo navegador do ouvidor (ao abrir o painel, no máximo a cada 12 h, ou no botão "Atualizar painel do prefeito"), usando os 1.000 protocolos mais recentes |
 | LAI (Lei 12.527/2011): 20 + 10 dias, recursos | Não iniciado (módulo separado) |
 | Mapa de ocorrências | Não iniciado (pode usar OpenStreetMap, gratuito) |
 | Relatórios mensais/anuais (PDF/Excel) | Não iniciado (CSV já existe) |
 | Notificações por e-mail/WhatsApp/PWA | Parcial: aviso no app e e-mail do administrador. WhatsApp oficial é pago |
 | Status "Em triagem", "Encaminhado", "Aguardando informações", "Reaberto" | Não iniciado |
+
+Limitações do ouvidor/prefeito: as regras limitam o resumo a números e tamanhos máximos, mas não impedem que o ouvidor
+publique números errados (ele calcula no navegador). O administrador técnico ainda pode cadastrar um segundo e-mail dele
+como ouvidor e ler conversas (mesmo risco A3; só o e-mail de auditoria denuncia). As regras usam `string()` e `existsAfter()`
+em protocolos/historico: **precisam passar nos testes antes de publicar**. **Publique as regras e o app juntos** (app novo
+com regras antigas não encaminha; regras novas com app antigo funcionam, pois só acrescentam permissões).
 
 Limitações conhecidas dos prazos: as regras não conseguem **obrigar** o aviso ao cidadão (o app sempre o cria no mesmo
 lote, mas um servidor mal-intencionado poderia prorrogar sem avisar); a contagem é em dias corridos, sem suspensão por

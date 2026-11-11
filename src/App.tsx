@@ -1,10 +1,12 @@
 import { lazy, Suspense, useState } from "react";
-import { Bell, FilePlus2, Inbox, LogOut, QrCode, Settings, UserRound } from "lucide-react";
+import { BarChart3, Bell, FilePlus2, Inbox, LogOut, QrCode, Settings, UserRound } from "lucide-react";
 import { AuthProvider, useAuth } from "./lib/useAuth";
 import { TelaAuth, TelaConfirmarEmail } from "./components/Auth";
 import { NovaMensagem, MeusProtocolos, PainelAvisos, usarNotificacoes } from "./components/Cidadao";
 // Telas pesadas só são baixadas quando abertas (o app inicial fica mais leve no celular).
 const PainelSecretaria = lazy(() => import("./components/Secretaria").then((m) => ({ default: m.PainelSecretaria })));
+const PainelOuvidor = lazy(() => import("./components/Ouvidor").then((m) => ({ default: m.PainelOuvidor })));
+const PainelPrefeito = lazy(() => import("./components/Prefeito").then((m) => ({ default: m.PainelPrefeito })));
 const PainelAdmin = lazy(() => import("./components/Admin").then((m) => ({ default: m.PainelAdmin })));
 const Instalar = lazy(() => import("./components/Instalar").then((m) => ({ default: m.Instalar })));
 import { Perfil } from "./components/Perfil";
@@ -14,22 +16,27 @@ import { Cabecalho, Carrossel } from "./components/Marca";
 import { SiteProvider } from "./lib/useConfig";
 import { Aviso, Botao, Carregando, Cartao } from "./components/ui";
 
-type Aba = "nova" | "protocolos" | "avisos" | "painel" | "admin" | "perfil" | "instalar";
+type Aba = "nova" | "protocolos" | "avisos" | "painel" | "ouvidoria" | "prefeito" | "admin" | "perfil" | "instalar";
 
 function Shell() {
   const { perfil, sair } = useAuth();
   const ehAdmin = perfil?.papel === "admin";
   const ehServidor = perfil?.papel === "secretario" || perfil?.papel === "assessor";
-  const [aba, setAba] = useState<Aba>(ehAdmin ? "admin" : ehServidor ? "painel" : "nova");
+  const ehOuvidor = perfil?.papel === "ouvidor";
+  const ehPrefeito = perfil?.papel === "prefeito";
+  const interno = ehAdmin || ehServidor || ehOuvidor || ehPrefeito; // não é cidadão
+  const [aba, setAba] = useState<Aba>(ehAdmin ? "admin" : ehServidor ? "painel" : ehOuvidor ? "ouvidoria" : ehPrefeito ? "prefeito" : "nova");
   const [protocoloSel, setProtocoloSel] = useState<string | null>(null);
   const [concluido, setConcluido] = useState<string | null>(null);
   const { visiveis } = usarNotificacoes();
 
   const itens: { id: Aba; rotulo: string; Icone: typeof Bell; mostrar: boolean; badge?: number }[] = [
-    { id: "nova", rotulo: "Nova", Icone: FilePlus2, mostrar: !ehAdmin && !ehServidor },
-    { id: "protocolos", rotulo: "Protocolos", Icone: Inbox, mostrar: !ehAdmin && !ehServidor },
-    { id: "avisos", rotulo: "Avisos", Icone: Bell, mostrar: !ehAdmin && !ehServidor, badge: visiveis.length },
+    { id: "nova", rotulo: "Nova", Icone: FilePlus2, mostrar: !interno },
+    { id: "protocolos", rotulo: "Protocolos", Icone: Inbox, mostrar: !interno },
+    { id: "avisos", rotulo: "Avisos", Icone: Bell, mostrar: !interno, badge: visiveis.length },
     { id: "painel", rotulo: "Mensagens", Icone: Inbox, mostrar: ehServidor },
+    { id: "ouvidoria", rotulo: "Ouvidoria", Icone: Inbox, mostrar: ehOuvidor },
+    { id: "prefeito", rotulo: "Painel", Icone: BarChart3, mostrar: ehPrefeito },
     { id: "admin", rotulo: "Admin", Icone: Settings, mostrar: ehAdmin },
     { id: "perfil", rotulo: "Perfil", Icone: UserRound, mostrar: true },
     { id: "instalar", rotulo: "Instalar", Icone: QrCode, mostrar: true },
@@ -49,7 +56,7 @@ function Shell() {
 
       <a href="#conteudo" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2">Pular para o conteúdo</a>
       <main id="conteudo" tabIndex={-1} className="flex-1 space-y-4 p-4 pb-24 outline-none">
-        {!ehAdmin && !ehServidor && (aba === "nova" || aba === "protocolos" || aba === "avisos") && !protocoloSel && <Carrossel />}
+        {!interno && (aba === "nova" || aba === "protocolos" || aba === "avisos") && !protocoloSel && <Carrossel />}
         <Suspense fallback={<Carregando />}>
         {concluido && aba === "nova" ? (
           <Cartao className="space-y-3 text-center">
@@ -63,6 +70,8 @@ function Shell() {
         : aba === "protocolos" ? <MeusProtocolos abrir={setProtocoloSel} selecionado={protocoloSel} limparSelecao={() => setProtocoloSel(null)} />
         : aba === "avisos" ? <PainelAvisos abrirProtocolo={abrirProtocolo} />
         : aba === "painel" ? <PainelSecretaria />
+        : aba === "ouvidoria" ? <PainelOuvidor />
+        : aba === "prefeito" ? <PainelPrefeito />
         : aba === "admin" ? <PainelAdmin />
         : aba === "perfil" ? <Perfil />
         : <Instalar />}

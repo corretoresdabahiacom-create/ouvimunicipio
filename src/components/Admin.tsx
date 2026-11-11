@@ -19,7 +19,9 @@ function useColecao<T>(nome: string, mapear: (id: string, d: Record<string, unkn
   return { dados, erro };
 }
 
-const PAPEL_ROTULO = { admin: "Administrador", secretario: "Secretário(a)", assessor: "Assessor(a)" } as const;
+const PAPEL_ROTULO = { admin: "Administrador", secretario: "Secretário(a)", assessor: "Assessor(a)", ouvidor: "Ouvidor(a) geral", prefeito: "Prefeito(a) – só números" } as const;
+// só secretário e assessor pertencem a uma secretaria
+const precisaSecretaria = (papel: MembroEquipe["papel"]) => papel === "secretario" || papel === "assessor";
 
 export function PainelAdmin() {
   const [aba, setAba] = useState<"secretarias" | "equipe" | "usuarios" | "aparencia" | "publicidade" | "indicadores" | "relatorios">("secretarias");
@@ -122,12 +124,12 @@ function Equipe({ lista, secretarias, auditar }: { lista: MembroEquipe[]; secret
     const email = f.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setErro("E-mail inválido.");
     if (f.nome.trim().length < 2) return setErro("Informe o nome.");
-    if (f.papel !== "admin" && !f.secretariaId) return setErro("Escolha a secretaria.");
+    if (precisaSecretaria(f.papel) && !f.secretariaId) return setErro("Escolha a secretaria.");
     try {
       const dados: Record<string, unknown> = { nome: f.nome.trim(), papel: f.papel, ativo: f.ativo };
-      if (f.papel !== "admin") dados.secretariaId = f.secretariaId;
+      if (precisaSecretaria(f.papel)) dados.secretariaId = f.secretariaId;
       await setDoc(doc(db, "equipe", email), dados);
-      await auditar(editando ? "servidor.editar" : "servidor.criar", email, `${PAPEL_ROTULO[f.papel]}${f.papel !== "admin" ? ` – ${secretarias.find((s) => s.id === f.secretariaId)?.nome ?? ""}` : ""}${f.ativo ? "" : " (inativo)"}`);
+      await auditar(editando ? "servidor.editar" : "servidor.criar", email, `${PAPEL_ROTULO[f.papel]}${precisaSecretaria(f.papel) ? ` – ${secretarias.find((s) => s.id === f.secretariaId)?.nome ?? ""}` : ""}${f.ativo ? "" : " (inativo)"}`);
       setF(vazio); setEditando(false);
     } catch (err) { setErro(mensagemDeErro(err)); }
   }
@@ -146,7 +148,7 @@ function Equipe({ lista, secretarias, auditar }: { lista: MembroEquipe[]; secret
           <select value={f.papel} onChange={(e) => setF({ ...f, papel: e.target.value as MembroEquipe["papel"] })} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5">
             {Object.entries(PAPEL_ROTULO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
           </select></label>
-        {f.papel !== "admin" && (
+        {precisaSecretaria(f.papel) && (
           <label className="block"><span className="mb-1 block text-sm font-medium">Secretaria</span>
             <select value={f.secretariaId} onChange={(e) => setF({ ...f, secretariaId: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5" required>
               <option value="">Selecione…</option>

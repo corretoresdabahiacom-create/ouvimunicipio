@@ -1,6 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
 
-export type Papel = "cidadao" | "admin" | "secretario" | "assessor";
+export type Papel = "cidadao" | "admin" | "secretario" | "assessor" | "ouvidor" | "prefeito";
 
 export type Situacao = "ativo" | "bloqueado" | "excluido";
 
@@ -29,7 +29,7 @@ export interface Secretaria { id: string; nome: string; ativa: boolean }
 export interface MembroEquipe {
   email: string; // ID do documento
   nome: string;
-  papel: "admin" | "secretario" | "assessor";
+  papel: "admin" | "secretario" | "assessor" | "ouvidor" | "prefeito";
   secretariaId?: string;
   ativo: boolean;
 }
@@ -62,6 +62,10 @@ export interface Protocolo {
   prorrogadoEm?: Timestamp | null;
   prorrogacaoMotivo?: string;
   prorrogacaoPor?: string;
+  // ouvidor geral: encaminhamentos (histórico em protocolos/{n}/historico) e cobrança interna ao setor
+  encaminhamentos?: number;
+  encaminhadoEm?: Timestamp | null;
+  cobradoEm?: Timestamp | null;
   ultimaMsgPor?: "cidadao" | "servidor";
   apagada?: boolean;
   // protocolos antigos (antes da conversa) guardavam o texto aqui
@@ -88,6 +92,32 @@ export interface Notificacao {
   mensagem: string;
   criadoEm: Timestamp | null;
   expiraEm: Timestamp;
+}
+
+// Registro imutável de cada encaminhamento feito pelo ouvidor geral (protocolos/{n}/historico/h1, h2…).
+export interface Encaminhamento {
+  id: string;
+  de: string; deNome: string;
+  para: string; paraNome: string;
+  por: string; motivo: string;
+  criadoEm: Timestamp | null;
+}
+
+// Só números, sem dados pessoais: é o único dado que o prefeito lê (estatisticas/atual).
+export interface Contagem { total: number; vencidas: number; concluidas: number }
+export interface Estatisticas {
+  geradoEm: Timestamp | null;
+  geradoPor: string;
+  total: number;
+  porStatus: Record<string, number>;
+  porTipo: Record<string, number>;
+  porSecretaria: Record<string, Contagem>;
+  porMes: Record<string, number>; // "2026-10": 12
+  vencidas: number;
+  tempoMedioRespostaDias: number;
+  dentroPrazoPct: number;
+  notaMedia: number;
+  avaliacoes: number;
 }
 
 export const PRAZO_DIAS = 30;

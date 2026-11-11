@@ -17,6 +17,8 @@ const beto = () => env.authenticatedContext("beto", { email: "beto@x.com", email
 const sam = () => env.authenticatedContext("sam", { email: "sam@x.com", email_verified: true }).firestore();       // secretário da Saúde
 const sol = () => env.authenticatedContext("sol", { email: "sol@x.com", email_verified: true }).firestore();       // secretário de Obras
 const adm = () => env.authenticatedContext("adm", { email: "adm@x.com", email_verified: true }).firestore();       // administrador
+const olga = () => env.authenticatedContext("olga", { email: "olga@x.com", email_verified: true }).firestore();     // ouvidora geral
+const pedro = () => env.authenticatedContext("pedro", { email: "pedro@x.com", email_verified: true }).firestore();   // prefeito
 const semConfirmar = () => env.authenticatedContext("ana", { email: "ana@x.com", email_verified: false }).firestore();
 const anonimo = () => env.unauthenticatedContext().firestore();
 
@@ -31,11 +33,15 @@ async function semearBase() {
     await setDoc(doc(db, "users/sam"), perfil("Sam", "sam@x.com"));
     await setDoc(doc(db, "users/sol"), perfil("Sol", "sol@x.com"));
     await setDoc(doc(db, "users/adm"), perfil("Adm", "adm@x.com"));
+    await setDoc(doc(db, "users/olga"), perfil("Olga", "olga@x.com"));
+    await setDoc(doc(db, "users/pedro"), perfil("Pedro", "pedro@x.com"));
     await setDoc(doc(db, "secretarias/saude"), { nome: "Saúde", ativa: true });
     await setDoc(doc(db, "secretarias/obras"), { nome: "Obras", ativa: true });
     await setDoc(doc(db, "secretarias/velha"), { nome: "Velha", ativa: false });
     await setDoc(doc(db, "equipe/sam@x.com"), { nome: "Sam", papel: "secretario", secretariaId: "saude", ativo: true });
     await setDoc(doc(db, "equipe/sol@x.com"), { nome: "Sol", papel: "secretario", secretariaId: "obras", ativo: true });
+    await setDoc(doc(db, "equipe/olga@x.com"), { nome: "Olga", papel: "ouvidor", ativo: true });
+    await setDoc(doc(db, "equipe/pedro@x.com"), { nome: "Pedro", papel: "prefeito", ativo: true });
     await setDoc(doc(db, "equipe/adm@x.com"), { nome: "Adm", papel: "admin", ativo: true });
     await setDoc(doc(db, "config/site"), { nome: "Prefeitura", cor: "#0b3b8c", logo: "", atualizadoEm: Timestamp.now() });
     await setDoc(doc(db, "anuncios/a1"), { titulo: "Ativo", link: "", imagem: "data:image/png;base64,AAAA", ativo: true, ordem: 1, criadoEm: Timestamp.now() });
@@ -618,6 +624,156 @@ describe("Aparência e publicidade (públicas)", () => {
 });
 
 // =====================================================================
+describe("14. Ouvidor geral: lê tudo, encaminha ao setor, cobra e deixa histórico", () => {
+  const stats = (extra: Record<string, unknown> = {}) => ({
+    geradoEm: serverTimestamp(), geradoPor: "Olga", total: 3, vencidas: 1, avaliacoes: 0,
+    tempoMedioRespostaDias: 2.5, dentroPrazoPct: 80, notaMedia: 0,
+    porStatus: { aberto: 3 }, porTipo: { reclamacao: 3 }, porSecretaria: { Saúde: { total: 3, vencidas: 1, concluidas: 0 } }, porMes: { "2026-11": 3 },
+    ...extra,
+  });
+  // Mesmo lote do app: muda a secretaria e grava o histórico h{n}.
+  function encaminhar(db: Db, o: { n?: number; para?: string; paraNome?: string; motivo?: string; por?: string; hid?: string } = {}) {
+    const n = o.n ?? 1;
+    const para = o.para ?? "obras", paraNome = o.paraNome ?? "Obras";
+    const b = writeBatch(db);
+    b.update(doc(db, "protocolos", NUM), { secretariaId: para, secretariaNome: paraNome, encaminhadoEm: serverTimestamp(), encaminhamentos: n });
+    b.set(doc(db, "protocolos", NUM, "historico", o.hid ?? `h${n}`), {
+      de: "saude", deNome: "Saúde", para, paraNome, por: o.por ?? "Olga", motivo: o.motivo ?? "Assunto é de obras.", criadoEm: serverTimestamp(),
+    });
+    return b;
+  }
+  beforeEach(async () => { await semearProtocolo(); });
+
+  test("lê o protocolo, a lista, as mensagens e as mídias de qualquer secretaria", async () => {
+    await assertSucceeds(getDoc(doc(olga(), "protocolos", NUM)));
+    await assertSucceeds(getDocs(collection(olga(), "protocolos")));
+    await assertSucceeds(getDoc(doc(olga(), "protocolos", NUM, "mensagens", "m00")));
+    await assertSucceeds(getDoc(doc(olga(), "protocolos", NUM, "midias", "00_0_0")));
+  });
+  test("NÃO escreve mensagens, NÃO apaga e NÃO altera status", async () => {
+    const dbo = olga();
+    const b = writeBatch(dbo);
+    b.set(doc(dbo, "protocolos", NUM, "mensagens", "m01"), { de: "servidor", autorUid: "olga", texto: "Oi", anexos: [], criadoEm: serverTimestamp() });
+    await assertFails(b.commit());
+    await assertFails(updateDoc(doc(olga(), "protocolos", NUM), { status: "concluido", concluidoEm: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(olga(), "protocolos", NUM)));
+  });
+  test("encaminha para outra secretaria com histórico no mesmo lote", async () => {
+    await assertSucceeds(encaminhar(olga()).commit());
+    await assertSucceeds(getDoc(doc(sol(), "protocolos", NUM)));       // a nova secretaria passa a ver
+    await assertFails(getDoc(doc(sam(), "protocolos", NUM)));          // a antiga deixa de ver
+    await assertFails(getDoc(doc(sam(), "protocolos", NUM, "mensagens", "m00")));
+    await assertSucceeds(getDoc(doc(sol(), "protocolos", NUM, "mensagens", "m00")));
+  });
+  test("o autor e a secretaria atual leem o histórico; outra secretaria não", async () => {
+    await encaminhar(olga()).commit();
+    await assertSucceeds(getDoc(doc(ana(), "protocolos", NUM, "historico", "h1")));
+    await assertSucceeds(getDoc(doc(sol(), "protocolos", NUM, "historico", "h1")));
+    await assertSucceeds(getDoc(doc(olga(), "protocolos", NUM, "historico", "h1")));
+    await assertFails(getDoc(doc(sam(), "protocolos", NUM, "historico", "h1")));
+    await assertFails(getDoc(doc(beto(), "protocolos", NUM, "historico", "h1")));
+  });
+  test("encaminhar sem o registro de histórico é recusado", async () => {
+    await assertFails(updateDoc(doc(olga(), "protocolos", NUM), { secretariaId: "obras", secretariaNome: "Obras", encaminhadoEm: serverTimestamp(), encaminhamentos: 1 }));
+  });
+  test("histórico com nome de secretaria ou autor falsos é recusado", async () => {
+    await assertFails(encaminhar(olga(), { paraNome: "Outra" }).commit());
+    await assertFails(encaminhar(olga(), { por: "Fulano" }).commit());
+    await assertFails(encaminhar(olga(), { motivo: "oi" }).commit());
+    await assertFails(encaminhar(olga(), { hid: "h2" }).commit());
+  });
+  test("não encaminha para secretaria inativa nem para a mesma", async () => {
+    await assertFails(encaminhar(olga(), { para: "velha", paraNome: "Velha" }).commit());
+    await assertFails(encaminhar(olga(), { para: "saude", paraNome: "Saúde" }).commit());
+  });
+  test("não encaminha protocolo concluído", async () => {
+    await env.clearFirestore(); await semearBase(); await semearProtocolo(concluidoHa(1));
+    await assertFails(encaminhar(olga()).commit());
+  });
+  test("o contador de encaminhamentos só sobe de 1 em 1", async () => {
+    await assertSucceeds(encaminhar(olga()).commit());
+    await assertFails(encaminhar(olga(), { n: 3, para: "saude", paraNome: "Saúde" }).commit());
+  });
+  test("ninguém mais cria histórico nem encaminha (secretário, cidadão, admin)", async () => {
+    for (const quem of [sam(), ana(), adm()]) await assertFails(encaminhar(quem).commit());
+  });
+  test("histórico é imutável", async () => {
+    await encaminhar(olga()).commit();
+    await assertFails(updateDoc(doc(olga(), "protocolos", NUM, "historico", "h1"), { motivo: "outro motivo" }));
+    await assertFails(deleteDoc(doc(olga(), "protocolos", NUM, "historico", "h1")));
+  });
+  test("cobra a resposta (só protocolo aberto) e não mexe em mais nada", async () => {
+    await assertSucceeds(updateDoc(doc(olga(), "protocolos", NUM), { cobradoEm: serverTimestamp() }));
+    await assertFails(updateDoc(doc(olga(), "protocolos", NUM), { cobradoEm: Timestamp.fromMillis(1) }));
+    await assertFails(updateDoc(doc(olga(), "protocolos", NUM), { cobradoEm: serverTimestamp(), status: "concluido" }));
+  });
+  test("cobrança em protocolo já respondido é recusada; secretário e cidadão não cobram", async () => {
+    await assertFails(updateDoc(doc(sam(), "protocolos", NUM), { cobradoEm: serverTimestamp() }));
+    await assertFails(updateDoc(doc(ana(), "protocolos", NUM), { cobradoEm: serverTimestamp() }));
+    await env.clearFirestore(); await semearBase(); await semearProtocolo(respondido);
+    await assertFails(updateDoc(doc(olga(), "protocolos", NUM), { cobradoEm: serverTimestamp() }));
+  });
+  test("ouvidor inativo ou sem e-mail confirmado perde o acesso", async () => {
+    await env.withSecurityRulesDisabled(async (c) => { await updateDoc(doc(c.firestore(), "equipe/olga@x.com"), { ativo: false }); });
+    await assertFails(getDoc(doc(olga(), "protocolos", NUM)));
+    await env.withSecurityRulesDisabled(async (c) => { await updateDoc(doc(c.firestore(), "equipe/olga@x.com"), { ativo: true }); });
+    const nc = env.authenticatedContext("olga", { email: "olga@x.com", email_verified: false }).firestore();
+    await assertFails(getDoc(doc(nc, "protocolos", NUM)));
+  });
+  test("o administrador cadastra ouvidor e prefeito sem secretaria; secretário continua exigindo secretaria", async () => {
+    await assertSucceeds(setDoc(doc(adm(), "equipe/novo@x.com"), { nome: "Novo", papel: "ouvidor", ativo: true }));
+    await assertSucceeds(setDoc(doc(adm(), "equipe/novo2@x.com"), { nome: "Novo2", papel: "prefeito", ativo: true }));
+    await assertFails(setDoc(doc(adm(), "equipe/novo3@x.com"), { nome: "Novo3", papel: "secretario", ativo: true }));
+    await assertFails(setDoc(doc(adm(), "equipe/novo4@x.com"), { nome: "Novo4", papel: "superadmin", ativo: true }));
+  });
+  test("o ouvidor não cadastra equipe nem lê a lista de usuários", async () => {
+    await assertFails(setDoc(doc(olga(), "equipe/novo@x.com"), { nome: "Novo", papel: "ouvidor", ativo: true }));
+    await assertFails(getDoc(doc(olga(), "users/ana")));
+  });
+
+  describe("estatísticas do prefeito: só números, sem dados pessoais", () => {
+    test("ouvidor e administrador publicam; o prefeito, o secretário e o cidadão não", async () => {
+      await assertSucceeds(setDoc(doc(olga(), "estatisticas/atual"), stats()));
+      await assertSucceeds(setDoc(doc(adm(), "estatisticas/atual"), stats({ geradoPor: "Adm" })));
+      await assertFails(setDoc(doc(pedro(), "estatisticas/atual"), stats({ geradoPor: "Pedro" })));
+      await assertFails(setDoc(doc(sam(), "estatisticas/atual"), stats({ geradoPor: "Sam" })));
+      await assertFails(setDoc(doc(ana(), "estatisticas/atual"), stats({ geradoPor: "Ana" })));
+    });
+    test("campos extras (ex.: texto de cidadão ou lista de protocolos) são recusados", async () => {
+      await assertFails(setDoc(doc(olga(), "estatisticas/atual"), stats({ protocolos: [NUM] })));
+      await assertFails(setDoc(doc(olga(), "estatisticas/atual"), stats({ nomes: ["Ana"] })));
+    });
+    test("data e autor precisam ser do servidor/do usuário; só existe o documento 'atual'", async () => {
+      await assertFails(setDoc(doc(olga(), "estatisticas/atual"), stats({ geradoEm: Timestamp.fromMillis(1) })));
+      await assertFails(setDoc(doc(olga(), "estatisticas/atual"), stats({ geradoPor: "Outro" })));
+      await assertFails(setDoc(doc(olga(), "estatisticas/outro"), stats()));
+      await assertFails(setDoc(doc(olga(), "estatisticas/atual"), stats({ total: "3" })));
+    });
+    test("o prefeito lê só as estatísticas", async () => {
+      await setDoc(doc(olga(), "estatisticas/atual"), stats());
+      await assertSucceeds(getDoc(doc(pedro(), "estatisticas/atual")));
+      await assertSucceeds(getDoc(doc(adm(), "estatisticas/atual")));
+      await assertFails(getDoc(doc(ana(), "estatisticas/atual")));
+      await assertFails(getDoc(doc(sam(), "estatisticas/atual")));
+      await assertFails(getDoc(doc(anonimo(), "estatisticas/atual")));
+    });
+    test("o prefeito NÃO lê protocolos, conversas, mídias, histórico, usuários nem notificações", async () => {
+      await assertFails(getDoc(doc(pedro(), "protocolos", NUM)));
+      await assertFails(getDocs(collection(pedro(), "protocolos")));
+      await assertFails(getDoc(doc(pedro(), "protocolos", NUM, "mensagens", "m00")));
+      await assertFails(getDoc(doc(pedro(), "protocolos", NUM, "midias", "00_0_0")));
+      await assertFails(getDoc(doc(pedro(), "users/ana")));
+      await assertFails(getDocs(collection(pedro(), "notificacoes")));
+    });
+    test("o prefeito não escreve em nada", async () => {
+      await assertFails(updateDoc(doc(pedro(), "protocolos", NUM), { cobradoEm: serverTimestamp() }));
+      await assertFails(encaminhar(pedro()).commit());
+      await assertFails(setDoc(doc(pedro(), "secretarias/nova"), { nome: "Nova", ativa: true }));
+    });
+  });
+});
+
+// =====================================================================
 describe("Padrão: tudo que não foi liberado está negado", () => {
   test("coleção desconhecida", async () => {
     await assertFails(setDoc(doc(adm(), "qualquer/coisa"), { a: 1 }));
@@ -628,8 +784,6 @@ describe("Padrão: tudo que não foi liberado está negado", () => {
 // =====================================================================
 // Ainda NÃO existem no sistema (Fases 2 e 3 do plano). Ficam aqui como lembrete obrigatório:
 describe("Pendentes (Fases 2 e 3)", () => {
-  test.todo("14. Ouvidor geral acompanha e redistribui demandas, com histórico de encaminhamentos");
   test.todo("17. Isolamento entre municípios: usuário de um município não lê nem escreve em outro");
   test.todo("19. Pedidos de acesso à informação (LAI) e recursos, separados da Ouvidoria");
-  test.todo("Prefeito: vê indicadores, nunca denúncias nem dados pessoais");
 });

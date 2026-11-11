@@ -72,6 +72,7 @@ export function PainelSecretaria() {
             <p className="text-sm text-slate-700">Enviado em {dataBR(p.criadoEm)}</p>
             <p className="mt-1 text-xs">
               {p.status === "respondido" && p.ultimaMsgPor === "cidadao" && <span className="font-semibold text-blue-800">O cidadão respondeu · </span>}
+              {p.status === "aberto" && p.cobradoEm && <span className="font-semibold text-red-800">Cobrado pela Ouvidoria · </span>}
               {r && <span className={r.classe}>{r.texto}</span>}
             </p>
           </button>

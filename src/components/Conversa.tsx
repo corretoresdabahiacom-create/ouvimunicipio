@@ -10,7 +10,7 @@ import { registrarEnvio } from "../lib/limite";
 import {
   MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, juntarPartes, tipoDe,
 } from "../lib/media";
-import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Mensagem, type Protocolo } from "../lib/types";
+import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Protocolo } from "../lib/types";
 import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
 
 const DIA = 86_400_000;
@@ -179,7 +179,7 @@ export function useMensagens(p: Protocolo) {
   return { msgs, erro, ativa };
 }
 
-function Balao({ m, numero, eu }: { m: Mensagem; numero: string; eu: "cidadao" | "servidor" }) {
+function Balao({ m, numero, eu }: { m: Mensagem; numero: string; eu: "cidadao" | "servidor" | "ouvidor" }) {
   const minha = m.de === eu;
   const quem = m.de === "servidor" ? "Secretaria" : (eu === "cidadao" ? "Você" : "Cidadão");
   return (
@@ -361,7 +361,20 @@ function Prorrogacao({ p }: { p: Protocolo }) {
 }
 
 // ---------- detalhe do protocolo ----------
-export function ProtocoloDetalhe({ p, voltar, eu }: { p: Protocolo; voltar: () => void; eu: "cidadao" | "servidor" }) {
+export function useHistorico(p: Protocolo) {
+  const [lista, setLista] = useState<Encaminhamento[]>([]);
+  const n = p.encaminhamentos ?? 0;
+  useEffect(() => {
+    if (!n) { setLista([]); return; }
+    return onSnapshot(collection(db, "protocolos", p.id, "historico"),
+      (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Encaminhamento).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))),
+      () => setLista([]));
+  }, [p.id, n]);
+  return lista;
+}
+
+export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar: () => void; eu: "cidadao" | "servidor" | "ouvidor"; topo?: ReactNode }) {
+  const historico = useHistorico(p);
   const { msgs, erro, ativa } = useMensagens(p);
   const prazo = prazoFinal(p);
   const rotulo = rotuloPrazo(p);
@@ -409,16 +422,28 @@ export function ProtocoloDetalhe({ p, voltar, eu }: { p: Protocolo; voltar: () =
             {p.prorrogacaoMotivo && <> Motivo: {p.prorrogacaoMotivo}</>}
           </Aviso>
         )}
+        {historico.length > 0 && (
+          <Aviso tipo="info">
+            <b>Encaminhado pela Ouvidoria:</b>
+            <ul className="mt-1 list-disc pl-5">
+              {historico.map((h) => <li key={h.id}>{dataBR(h.criadoEm)} · de {h.deNome} para <b>{h.paraNome}</b>{eu !== "cidadao" && <> (por {h.por}). Motivo: {h.motivo}</>}</li>)}
+            </ul>
+          </Aviso>
+        )}
+        {eu === "servidor" && p.status === "aberto" && p.cobradoEm && (
+          <Aviso>A Ouvidoria cobrou uma resposta a este protocolo em {dataBR(p.cobradoEm)}.</Aviso>
+        )}
         {eu === "servidor" && p.status === "aberto" && !p.prorrogadoEm && nivelPrazo(p) !== "vencido" && <Prorrogacao p={p} />}
         {erro && <Aviso>{erro}</Aviso>}
         {corpo}
       </Cartao>
-      {aberto && ativa && msgs && (
+      {topo}
+      {eu !== "ouvidor" && aberto && ativa && msgs && (
         proximo >= MAX_MENSAGENS
           ? <Aviso tipo="info">Esta conversa atingiu o limite de {MAX_MENSAGENS} mensagens.</Aviso>
           : <Compositor p={p} proximo={proximo} eu={eu} />
       )}
-      <Encerramento p={p} eu={eu} />
+      {eu !== "ouvidor" && <Encerramento p={p} eu={eu} />}
       {/* apagar manualmente não existe: a limpeza é automática */}
     </div>
   );
