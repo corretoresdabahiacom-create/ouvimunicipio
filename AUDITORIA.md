@@ -9,7 +9,7 @@ Data: 10/11/2026. Versão auditada: ramo `main` com App Check e conversa sigilos
 | `npm run lint` (verificação de tipos TypeScript) | OK, 0 erros |
 | `npm run build` | OK. Pacotes: app 288 kB, firebase 722 kB, painéis em arquivos separados |
 | `npm audit` | 6 alertas antes; 2 corrigidos (Vite e re2js); restam 4, explicados em M1 |
-| Testes das regras do Firestore | **Escritos (77 casos), ainda NÃO executados.** O emulador não baixa no meu ambiente. Rodam no GitHub (aba Actions) após o próximo envio |
+| Testes das regras do Firestore | **Escritos (87 casos), ainda NÃO executados.** O emulador não baixa no meu ambiente. Rodam no GitHub (aba Actions) após o próximo envio |
 
 ## O que NÃO foi verificado (não afirmo que funciona)
 Instalação do PWA em celular, responsividade em tablet/celular, leitor de tela, fluxo completo na tela
@@ -26,7 +26,7 @@ lotes com mídia) nunca tinham rodado em emulador. Os testes novos existem para 
 | # | Problema | Situação |
 |---|---|---|
 | A1 | Nenhum teste automático. Regras de segurança só validadas por leitura | Testes criados + verificação automática no GitHub. **Aguardando 1ª execução** |
-| A2 | Sem limite de uso por conta. Uma conta verificada pode criar protocolos e mídias sem parar (até ~7 MB cada) e esgotar a cota gratuita do Firestore, tirando o app do ar para todos | **Não corrigido.** Proposta: intervalo mínimo entre envios e teto de protocolos abertos por pessoa, feito nas regras. Só depois dos testes ficarem verdes |
+| A2 | Sem limite de uso por conta. Uma conta verificada podia criar protocolos e mídias sem parar (até ~7 MB cada) e esgotar a cota gratuita do Firestore | **Corrigido, aguardando os testes.** Máx. 20 envios (manifestação nova ou complemento) a cada 24 h por conta; o contador fica no perfil e as regras exigem somá-lo no mesmo lote de cada envio (um registro vale para um único envio). Respostas dos servidores não contam |
 | A3 | O administrador técnico pode cadastrar um segundo e-mail dele como secretário e ler as conversas dessa secretaria. Só o e-mail de auditoria denunciaria | **Não corrigido.** Exige separar os perfis (admin técnico ≠ ouvidor) — Fase 2 |
 | A4 | E-mail de auditoria inativo (Resend não configurado): ações do administrador ficam sem registro | Pendente de você (chave do Resend) |
 | A5 | Fotos e vídeos são gravados no Firestore em base64. Funciona no plano gratuito, mas o plano de evolução pede evitar isso | **Decisão necessária** (ver abaixo) |
@@ -55,7 +55,10 @@ lotes com mídia) nunca tinham rodado em emulador. Os testes novos existem para 
 - `.env.example`, `functions/_comum.ts`, `package-lock.json` (Vite atualizado)
 - `rules-tests/` (testes das regras + LEIA-ME), `.github/workflows/ci.yml` (verificação automática)
 - `AUDITORIA.md` (este arquivo)
-- **Nenhuma regra do Firestore foi alterada.** Nada precisa ser republicado no console do Firebase.
+- **Regras do Firestore alteradas (limite de envios, A2): `firestore.rules`, `src/lib/limite.ts`, `Cidadao.tsx`, `Conversa.tsx`.**
+  **Ordem de publicação:** (1) enviar ao GitHub e esperar o fluxo "Verificação" ficar verde; (2) publicar o novo
+  `firestore.rules` no console do Firebase; (3) o Cloudflare publica o app em seguida. Entre (2) e (3) o envio de
+  mensagens pode falhar por alguns minutos (app antigo × regras novas). Não publique as regras se algum teste falhar.
 
 ## Decisões que preciso de você (não bloqueiam a verificação dos testes)
 1. **Fotos e vídeos:** continuar no Firestore (grátis, com limite de tamanho) ou usar o Cloudflare R2 (URLs temporárias, sem limite apertado). O R2 normalmente exige cadastrar forma de pagamento no Cloudflare, mesmo com cota gratuita (confirmar antes).

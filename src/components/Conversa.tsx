@@ -6,6 +6,7 @@ import { ArrowLeft, Paperclip, Send, Star, X } from "lucide-react";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
+import { registrarEnvio } from "../lib/limite";
 import {
   MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, juntarPartes, tipoDe,
 } from "../lib/media";
@@ -225,6 +226,7 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
           criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 24 * 3600_000),
         });
       } else {
+        await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
         lote.update(doc(db, "protocolos", p.id), { ultimaMsgPor: "cidadao" });
       }
       await lote.commit();

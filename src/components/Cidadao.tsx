@@ -4,6 +4,7 @@ import { Send, Bell, Clock } from "lucide-react";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
+import { registrarEnvio } from "../lib/limite";
 import { TIPOS, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
 import { Aviso, Botao, Campo, Cartao, Carregando, Selo, dataBR, diasRestantes } from "./ui";
 import { ProtocoloDetalhe, SeletorAnexos, gravarMidias, prepararAnexos, useAnexos, useLimpezaConversas } from "./Conversa";
@@ -47,6 +48,7 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
       const preparados = await prepararAnexos(anexos.arquivos, "00");
       const numero = gerarNumero();
       const lote = writeBatch(db);
+      await registrarEnvio(lote, perfil.uid, numero);
       lote.set(doc(db, "protocolos", numero), {
         numero, autorUid: perfil.uid, secretariaId: sec.id, secretariaNome: sec.nome,
         tipo, status: "aberto", ultimaMsgPor: "cidadao", criadoEm: serverTimestamp(),

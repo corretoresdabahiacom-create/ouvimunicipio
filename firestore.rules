@@ -20,6 +20,8 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('aceiteVersao', '') != '';
     }
     function meuEmail()   { return request.auth.token.email; }
+    // Perfil do usuário como ficará DEPOIS do lote (usado no limite de envios).
+    function meuPerfilDepois() { return getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
     function docEquipe()  { return get(/databases/$(database)/documents/equipe/$(meuEmail())).data; }
     function naEquipe() {
       return verificado()
@@ -67,6 +69,24 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['situacao', 'nome', 'email', 'telefone'])
         && request.resource.data.nome == '(removido)' && request.resource.data.email == ''
         && !request.resource.data.keys().hasAny(['telefone'])
+        ||
+      // limite de envios: o cidadão soma 1 envio por mensagem/complemento (máx. 20 a cada 24 h, janela fixa
+      // que começa no 1º envio). O contador só sobe de 1 em 1 e não pode ser zerado antes de 24 h.
+        basico() && request.auth.uid == uid
+        && resource.data.get('situacao', 'ativo') == 'ativo'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['envios', 'janelaEm', 'ultimoEnvio'])
+        && request.resource.data.ultimoEnvio is string && request.resource.data.ultimoEnvio.size() <= 40
+        && (
+          // nova janela
+          ((!('janelaEm' in resource.data) || resource.data.janelaEm <= request.time - duration.value(1, 'd'))
+            && request.resource.data.envios == 1 && request.resource.data.janelaEm == request.time)
+          ||
+          // mesma janela: +1, no máximo 20
+          (('janelaEm' in resource.data) && resource.data.janelaEm > request.time - duration.value(1, 'd')
+            && request.resource.data.janelaEm == resource.data.janelaEm
+            && request.resource.data.envios == resource.data.get('envios', 0) + 1
+            && request.resource.data.envios <= 20)
+        )
         ||
       // o administrador: bloquear/desbloquear, ou excluir (apaga nome/e-mail/telefone e bloqueia de vez)
         ehAdmin() && uid != request.auth.uid
@@ -134,6 +154,7 @@ service cloud.firestore {
         && request.resource.data.status == 'aberto'
         && request.resource.data.ultimaMsgPor == 'cidadao'
         && request.resource.data.criadoEm == request.time
+        && meuPerfilDepois().get('ultimoEnvio', '') == numero
         && get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.ativa == true
         && request.resource.data.secretariaNome ==
            get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.nome;
@@ -204,7 +225,8 @@ service cloud.firestore {
             ||
             (mid != 'm00' && !request.resource.data.keys().hasAny(['assunto'])
               && pai().status in ['aberto', 'respondido']
-              && ((request.resource.data.de == 'cidadao' && pai().autorUid == request.auth.uid)
+              && ((request.resource.data.de == 'cidadao' && pai().autorUid == request.auth.uid
+                    && meuPerfilDepois().get('ultimoEnvio', '') == numero + '/' + mid)
                   || (request.resource.data.de == 'servidor' && ehServidor() && pai().secretariaId == minhaSecretaria())))
           );
         allow update: if false;

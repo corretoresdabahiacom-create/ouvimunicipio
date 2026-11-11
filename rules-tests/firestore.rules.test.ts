@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, beforeEach, describe, test } from "vitest";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch, type WriteBatch } from "firebase/firestore";
 
 let env: RulesTestEnvironment;
 type Db = ReturnType<ReturnType<RulesTestEnvironment["authenticatedContext"]>["firestore"]>;
@@ -60,10 +60,29 @@ async function semearProtocolo(extra: Record<string, unknown> = {}, opcoes: { se
 const respondido = { status: "respondido", ultimaMsgPor: "servidor", respondidoEm: Timestamp.now() };
 const concluidoHa = (dias: number) => ({ ...respondido, status: "concluido", concluidoEm: Timestamp.fromMillis(Date.now() - dias * DIA) });
 
+// Contador de envios (limite por conta). O app soma 1 no perfil, no MESMO lote de cada envio do cidadão.
+//  previos: quantos envios o perfil já tinha na janela (0 = 1º envio, abre uma janela nova de 24 h)
+//  novaJanela: força a abertura de uma janela nova; ref: referência do envio; sem: não registra o envio
+type Contador = { previos?: number; novaJanela?: boolean; ref?: string; sem?: boolean };
+function contar(b: WriteBatch, db: Db, uid: string, ref: string, c: Contador = {}) {
+  if (c.sem) return;
+  const previos = c.previos ?? 0;
+  const nova = c.novaJanela ?? previos === 0;
+  b.update(doc(db, "users", uid), nova
+    ? { envios: 1, janelaEm: serverTimestamp(), ultimoEnvio: c.ref ?? ref }
+    : { envios: previos + 1, ultimoEnvio: c.ref ?? ref });
+}
+async function semearContador(uid: string, envios: number, horasAtras: number) {
+  await env.withSecurityRulesDisabled(async (c) => {
+    await updateDoc(doc(c.firestore(), "users", uid), { envios, janelaEm: Timestamp.fromMillis(Date.now() - horasAtras * 3600_000), ultimoEnvio: "antigo" });
+  });
+}
+
 // Mesmo lote que o app faz ao registrar uma manifestação.
-function novoProtocolo(db: Db, numero: string, o: { uid?: string; secretariaId?: string; secretariaNome?: string; tipo?: string; anexos?: number; partes?: number } = {}) {
+function novoProtocolo(db: Db, numero: string, o: { uid?: string; secretariaId?: string; secretariaNome?: string; tipo?: string; anexos?: number; partes?: number; contador?: Contador } = {}) {
   const uid = o.uid ?? "ana";
   const b = writeBatch(db);
+  contar(b, db, uid, numero, o.contador);
   b.set(doc(db, "protocolos", numero), {
     numero, autorUid: uid, secretariaId: o.secretariaId ?? "saude", secretariaNome: o.secretariaNome ?? "Saúde",
     tipo: o.tipo ?? "reclamacao", status: "aberto", ultimaMsgPor: "cidadao", criadoEm: serverTimestamp(),
@@ -183,7 +202,7 @@ describe("4-6. Registro da manifestação, protocolo e anexos", () => {
   });
   test("tipos válidos: reclamação, denúncia, solicitação, sugestão, elogio, informação", async () => {
     const tipos = ["reclamacao", "denuncia", "solicitacao", "sugestao", "elogio", "informacao"];
-    for (const [i, t] of tipos.entries()) await assertSucceeds(novoProtocolo(ana(), `OUV-2026-TIPO000${i}`, { tipo: t }).commit());
+    for (const [i, t] of tipos.entries()) await assertSucceeds(novoProtocolo(ana(), `OUV-2026-TIPO000${i}`, { tipo: t, contador: { previos: i } }).commit());
   });
   test("o protocolo não pode ser apagado por ninguém", async () => {
     await semearProtocolo();
@@ -282,6 +301,7 @@ describe("8-11. Resposta, complementação, encerramento e avaliação", () => {
   test("o cidadão complementa a própria mensagem", async () => {
     const db = ana();
     const b = writeBatch(db);
+    contar(b, db, "ana", `${NUM}/m01`);
     b.set(doc(db, "protocolos", NUM, "mensagens", "m01"), { de: "cidadao", autorUid: "ana", texto: "Mais um detalhe.", anexos: [], criadoEm: serverTimestamp() });
     b.update(doc(db, "protocolos", NUM), { ultimaMsgPor: "cidadao" });
     await assertSucceeds(b.commit());
@@ -335,7 +355,10 @@ describe("8-11. Resposta, complementação, encerramento e avaliação", () => {
     test("protocolo concluído não recebe novas mensagens", async () => {
       await assertSucceeds(updateDoc(doc(ana(), "protocolos", NUM), { status: "concluido", concluidoEm: serverTimestamp() }));
       const db = ana();
-      await assertFails(setDoc(doc(db, "protocolos", NUM, "mensagens", "m01"), { de: "cidadao", autorUid: "ana", texto: "Tarde demais", anexos: [], criadoEm: serverTimestamp() }));
+      const b = writeBatch(db);
+      contar(b, db, "ana", `${NUM}/m01`);
+      b.set(doc(db, "protocolos", NUM, "mensagens", "m01"), { de: "cidadao", autorUid: "ana", texto: "Tarde demais", anexos: [], criadoEm: serverTimestamp() });
+      await assertFails(b.commit());
     });
   });
 
@@ -346,6 +369,64 @@ describe("8-11. Resposta, complementação, encerramento e avaliação", () => {
     await assertFails(updateDoc(doc(ana(), "protocolos", NUM), { secretariaId: "obras" }));
     await assertFails(updateDoc(doc(ana(), "protocolos", NUM), { autorUid: "beto" }));
     await assertFails(updateDoc(doc(ana(), "protocolos", NUM), { status: "respondido" }));
+  });
+});
+
+// =====================================================================
+describe("Limite de envios por conta (proteção contra abuso e contra o fim da cota gratuita)", () => {
+  const complemento = (db: Db, c?: Contador) => {
+    const b = writeBatch(db);
+    contar(b, db, "ana", `${NUM}/m01`, c);
+    b.set(doc(db, "protocolos", NUM, "mensagens", "m01"), { de: "cidadao", autorUid: "ana", texto: "Complemento.", anexos: [], criadoEm: serverTimestamp() });
+    b.update(doc(db, "protocolos", NUM), { ultimaMsgPor: "cidadao" });
+    return b;
+  };
+  test("registrar manifestação SEM somar no contador é recusado", async () => {
+    await assertFails(novoProtocolo(ana(), NUM, { contador: { sem: true } }).commit());
+  });
+  test("o envio registrado para outro protocolo não vale para este", async () => {
+    await assertFails(novoProtocolo(ana(), NUM, { contador: { ref: "OUV-2026-OUTRO999" } }).commit());
+  });
+  test("um único registro não vale para dois protocolos no mesmo lote", async () => {
+    const db = ana();
+    const b = novoProtocolo(db, "OUV-2026-AAAA0001");
+    b.set(doc(db, "protocolos", "OUV-2026-AAAA0002"), { numero: "OUV-2026-AAAA0002", autorUid: "ana", secretariaId: "saude", secretariaNome: "Saúde", tipo: "reclamacao", status: "aberto", ultimaMsgPor: "cidadao", criadoEm: serverTimestamp() });
+    b.set(doc(db, "protocolos", "OUV-2026-AAAA0002", "mensagens", "m00"), { de: "cidadao", autorUid: "ana", assunto: "Segundo", texto: "Segundo protocolo", anexos: [], criadoEm: serverTimestamp() });
+    await assertFails(b.commit());
+  });
+  test("complemento do cidadão sem registrar o envio é recusado; com registro passa", async () => {
+    await semearProtocolo();
+    await assertFails(complemento(ana(), { sem: true }).commit());
+    await assertSucceeds(complemento(ana()).commit());
+  });
+  test("o 20º envio do dia passa; o 21º é recusado", async () => {
+    await semearContador("ana", 19, 1);
+    await assertSucceeds(novoProtocolo(ana(), "OUV-2026-LIM00020", { contador: { previos: 19 } }).commit());
+    await assertFails(novoProtocolo(ana(), "OUV-2026-LIM00021", { contador: { previos: 20 } }).commit());
+  });
+  test("passadas 24 h, o contador recomeça", async () => {
+    await semearContador("ana", 20, 25);
+    await assertSucceeds(novoProtocolo(ana(), NUM, { contador: { previos: 20, novaJanela: true } }).commit());
+  });
+  test("dentro das 24 h não dá para abrir janela nova nem zerar o contador", async () => {
+    await semearContador("ana", 20, 1);
+    await assertFails(novoProtocolo(ana(), NUM, { contador: { previos: 20, novaJanela: true } }).commit());
+    await assertFails(updateDoc(doc(ana(), "users/ana"), { envios: 0, ultimoEnvio: "x" }));
+    await assertFails(updateDoc(doc(ana(), "users/ana"), { envios: 1, janelaEm: serverTimestamp(), ultimoEnvio: "x" }));
+  });
+  test("o contador só sobe de 1 em 1", async () => {
+    await semearContador("ana", 5, 1);
+    await assertFails(updateDoc(doc(ana(), "users/ana"), { envios: 5, ultimoEnvio: "x" }));
+    await assertFails(updateDoc(doc(ana(), "users/ana"), { envios: 7, ultimoEnvio: "x" }));
+    await assertSucceeds(updateDoc(doc(ana(), "users/ana"), { envios: 6, ultimoEnvio: "x" }));
+  });
+  test("o cidadão não altera contador de outra pessoa; o administrador também não", async () => {
+    await assertFails(updateDoc(doc(beto(), "users/ana"), { envios: 1, janelaEm: serverTimestamp(), ultimoEnvio: "x" }));
+    await assertFails(updateDoc(doc(adm(), "users/ana"), { envios: 1, janelaEm: serverTimestamp(), ultimoEnvio: "x" }));
+  });
+  test("a resposta do servidor não gasta o contador de ninguém", async () => {
+    await semearProtocolo();
+    await assertSucceeds(respostaServidor(sam()).commit());
   });
 });
 
