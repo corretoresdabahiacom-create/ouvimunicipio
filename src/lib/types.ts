@@ -58,6 +58,10 @@ export interface Protocolo {
   respondidoEm?: Timestamp | null;
   concluidoEm?: Timestamp | null;
   avaliacao?: number;
+  // prorrogação única do prazo (Lei 13.460/2017, art. 16): motivo visível ao cidadão
+  prorrogadoEm?: Timestamp | null;
+  prorrogacaoMotivo?: string;
+  prorrogacaoPor?: string;
   ultimaMsgPor?: "cidadao" | "servidor";
   apagada?: boolean;
   // protocolos antigos (antes da conversa) guardavam o texto aqui
@@ -80,13 +84,14 @@ export interface Notificacao {
   id: string;
   uid: string;
   protocoloId: string;
-  tipo: "recebido" | "resposta" | "aviso";
+  tipo: "recebido" | "resposta" | "aviso" | "prorrogacao";
   mensagem: string;
   criadoEm: Timestamp | null;
   expiraEm: Timestamp;
 }
 
 export const PRAZO_DIAS = 30;
+export const PRAZO_PRORROGACAO_DIAS = 30; // prorrogação única, com justificativa (Lei 13.460/2017, art. 16)
 export const AVISO_HORAS = 24;
 export const APAGAR_APOS_DIAS = 30; // conversa é apagada 30 dias depois de concluída
 export const MAX_MENSAGENS = 50;

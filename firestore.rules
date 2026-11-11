@@ -192,6 +192,18 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avaliacao'])
           && request.resource.data.avaliacao is int && request.resource.data.avaliacao >= 1 && request.resource.data.avaliacao <= 5)
         ||
+        // o servidor prorroga o prazo UMA única vez (Lei 13.460/2017, art. 16): +30 dias, com justificativa,
+        // só antes da 1ª resposta e antes de vencer. Registra o nome do servidor e a data (servidor, não do aparelho).
+        (ehServidor() && resource.data.secretariaId == minhaSecretaria()
+          && resource.data.status == 'aberto'
+          && !resource.data.keys().hasAny(['prorrogadoEm'])
+          && request.time <= resource.data.criadoEm + duration.value(30, 'd')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['prorrogadoEm', 'prorrogacaoMotivo', 'prorrogacaoPor'])
+          && request.resource.data.prorrogadoEm == request.time
+          && request.resource.data.prorrogacaoMotivo is string
+          && request.resource.data.prorrogacaoMotivo.size() >= 10 && request.resource.data.prorrogacaoMotivo.size() <= 300
+          && request.resource.data.prorrogacaoPor == docEquipe().nome)
+        ||
         // marca que a conversa já foi apagada (só depois de 30 dias de concluído)
         ((resource.data.autorUid == request.auth.uid || (ehServidor() && resource.data.secretariaId == minhaSecretaria()))
           && prazoApagarVencido(resource.data)
@@ -294,7 +306,15 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.status == 'respondido'
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
         && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
-        && expiraEntre(duration.value(1410, 'm'), duration.value(1470, 'm'));
+        && expiraEntre(duration.value(1410, 'm'), duration.value(1470, 'm'))
+        ||
+      // "Prorrogação": o cidadão é comunicado (Lei 13.460/2017). Criada pelo servidor junto com a prorrogação (mesmo lote). Dura ~30 dias.
+        ehServidor() && camposOk()
+        && request.resource.data.tipo == 'prorrogacao'
+        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.get('prorrogadoEm', null) == request.time
+        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
+        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
+        && expiraEntre(duration.value(29, 'd'), duration.value(31, 'd'));
     }
 
     // ---------- aparência do site (pública: aparece antes do login) ----------

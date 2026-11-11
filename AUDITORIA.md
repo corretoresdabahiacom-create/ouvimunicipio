@@ -9,7 +9,7 @@ Data: 10/11/2026. Versão auditada: ramo `main` com App Check e conversa sigilos
 | `npm run lint` (verificação de tipos TypeScript) | OK, 0 erros |
 | `npm run build` | OK. Pacotes: app 288 kB, firebase 722 kB, painéis em arquivos separados |
 | `npm audit` | 6 alertas antes; 2 corrigidos (Vite e re2js); restam 4, explicados em M1 |
-| Testes das regras do Firestore | **Escritos (87 casos), ainda NÃO executados.** O emulador não baixa no meu ambiente. Rodam no GitHub (aba Actions) após o próximo envio |
+| Testes das regras do Firestore | **Escritos (97 casos), ainda NÃO executados.** O emulador não baixa no meu ambiente. Rodam no GitHub (aba Actions) após o próximo envio |
 
 ## O que NÃO foi verificado (não afirmo que funciona)
 Instalação do PWA em celular, responsividade em tablet/celular, leitor de tela, fluxo completo na tela
@@ -69,3 +69,22 @@ lotes com mídia) nunca tinham rodado em emulador. Os testes novos existem para 
 WhatsApp oficial (pago por conversa), IA para classificar/resumir (API paga; só com base legal e sem dados sigilosos),
 envio de e-mail em volume (Resend pago acima de ~100/dia), domínio próprio (para e-mail e para cada prefeitura).
 Mapa pode usar OpenStreetMap (gratuito).
+
+---
+
+# Fase 2 — Produto municipal (andamento)
+
+| Item do plano | Situação |
+|---|---|
+| **Prazos legais da Ouvidoria (Lei 13.460/2017, art. 16)** | **Feito, aguardando os testes.** Prazo de 30 dias; prorrogação única de +30 dias pelo servidor, com justificativa obrigatória (10 a 300 caracteres), nome e data do servidor registrados, comunicação ao cidadão (aviso no app + motivo visível no protocolo). Só vale antes da 1ª resposta e antes de vencer. Alertas em 10, 5 e 2 dias, no dia do vencimento e vencido. Aba **Vencidas** na secretaria; indicadores do administrador já consideram a prorrogação |
+| Ouvidor geral / ouvidor setorial, redistribuição de demandas, histórico de encaminhamentos | Não iniciado. **Depende de decisão:** o ouvidor lê o conteúdo das conversas ou só os dados do protocolo? E denúncias ficam restritas? |
+| Dashboard do prefeito (sem dados pessoais) | Não iniciado |
+| LAI (Lei 12.527/2011): 20 + 10 dias, recursos | Não iniciado (módulo separado) |
+| Mapa de ocorrências | Não iniciado (pode usar OpenStreetMap, gratuito) |
+| Relatórios mensais/anuais (PDF/Excel) | Não iniciado (CSV já existe) |
+| Notificações por e-mail/WhatsApp/PWA | Parcial: aviso no app e e-mail do administrador. WhatsApp oficial é pago |
+| Status "Em triagem", "Encaminhado", "Aguardando informações", "Reaberto" | Não iniciado |
+
+Limitações conhecidas dos prazos: as regras não conseguem **obrigar** o aviso ao cidadão (o app sempre o cria no mesmo
+lote, mas um servidor mal-intencionado poderia prorrogar sem avisar); a contagem é em dias corridos, sem suspensão por
+feriados (a regulamentação municipal pode definir de outro modo).

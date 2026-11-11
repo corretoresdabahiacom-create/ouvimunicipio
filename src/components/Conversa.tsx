@@ -10,8 +10,8 @@ import { registrarEnvio } from "../lib/limite";
 import {
   MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, juntarPartes, tipoDe,
 } from "../lib/media";
-import { APAGAR_APOS_DIAS, MAX_MENSAGENS, TIPOS, type AnexoMeta, type Mensagem, type Protocolo } from "../lib/types";
-import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, diasRestantes, prazoFinal } from "./ui";
+import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Mensagem, type Protocolo } from "../lib/types";
+import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
 
 const DIA = 86_400_000;
 
@@ -315,11 +315,56 @@ function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
   );
 }
 
+// ---------- prorrogação do prazo (Lei 13.460/2017, art. 16: uma única vez, com justificativa) ----------
+function Prorrogacao({ p }: { p: Protocolo }) {
+  const { perfil } = useAuth();
+  const [aberto, setAberto] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [erro, setErro] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+
+  async function prorrogar(e: FormEvent) {
+    e.preventDefault();
+    if (!perfil) return;
+    const m = motivo.trim();
+    if (m.length < 10) return setErro("Explique o motivo (mínimo de 10 caracteres). O cidadão vai ler esta justificativa.");
+    setErro(""); setOcupado(true);
+    try {
+      const lote = writeBatch(db);
+      lote.update(doc(db, "protocolos", p.id), { prorrogadoEm: serverTimestamp(), prorrogacaoMotivo: m, prorrogacaoPor: perfil.nome });
+      lote.set(doc(collection(db, "notificacoes")), {
+        uid: p.autorUid, protocoloId: p.id, tipo: "prorrogacao",
+        mensagem: `O prazo do protocolo ${p.numero} foi prorrogado por ${PRAZO_PRORROGACAO_DIAS} dias. Motivo informado pela secretaria: ${m}`,
+        criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
+      });
+      await lote.commit();
+      setAberto(false);
+    } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
+  }
+
+  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>Prorrogar prazo (+{PRAZO_PRORROGACAO_DIAS} dias)</Botao>;
+  return (
+    <form onSubmit={prorrogar} className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+      <p className="text-sm text-amber-950">A lei permite prorrogar <b>uma única vez</b>, por até {PRAZO_PRORROGACAO_DIAS} dias, com justificativa expressa. O cidadão será avisado e verá o motivo. Seu nome fica registrado.</p>
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium">Motivo da prorrogação</span>
+        <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} maxLength={300} required
+          className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
+      </label>
+      {erro && <Aviso>{erro}</Aviso>}
+      <div className="flex gap-2">
+        <Botao type="submit" carregando={ocupado}>Confirmar prorrogação</Botao>
+        <Botao type="button" variante="link" onClick={() => { setAberto(false); setErro(""); }}>Cancelar</Botao>
+      </div>
+    </form>
+  );
+}
+
 // ---------- detalhe do protocolo ----------
 export function ProtocoloDetalhe({ p, voltar, eu }: { p: Protocolo; voltar: () => void; eu: "cidadao" | "servidor" }) {
   const { msgs, erro, ativa } = useMensagens(p);
-  const dias = diasRestantes(p);
   const prazo = prazoFinal(p);
+  const rotulo = rotuloPrazo(p);
   const proximo = useMemo(() => (msgs && msgs.length ? Number(msgs[msgs.length - 1].id.slice(1)) + 1 : 0), [msgs]);
   const titulo = msgs?.[0]?.assunto ?? p.assunto ?? TIPOS[p.tipo] ?? "Manifestação";
   const legado = !!p.mensagem && (msgs?.length ?? 0) === 0;
@@ -353,11 +398,18 @@ export function ProtocoloDetalhe({ p, voltar, eu }: { p: Protocolo; voltar: () =
           <div><dt className="inline font-medium">Tipo: </dt><dd className="inline">{TIPOS[p.tipo] ?? "—"}</dd></div>
           <div><dt className="inline font-medium">Secretaria: </dt><dd className="inline">{p.secretariaNome}</dd></div>
           <div><dt className="inline font-medium">Enviado em: </dt><dd className="inline">{dataBR(p.criadoEm)}</dd></div>
-          {p.status === "aberto" && prazo && (
+          {p.status === "aberto" && prazo && rotulo && (
             <div><dt className="inline font-medium">Prazo de resposta: </dt>
-              <dd className="inline">{prazo.toLocaleDateString("pt-BR")} {dias !== null && (dias >= 0 ? `(${dias} dias restantes)` : "(prazo vencido)")}</dd></div>
+              <dd className="inline">{prazo.toLocaleDateString("pt-BR")} · <span className={rotulo.classe}>{rotulo.texto.replace(/^Prazo: /, "")}</span></dd></div>
           )}
         </dl>
+        {p.prorrogadoEm && (
+          <Aviso tipo="info">
+            <b>Prazo prorrogado</b> em {dataBR(p.prorrogadoEm)}{p.prorrogacaoPor ? ` por ${p.prorrogacaoPor}` : ""}, por mais {PRAZO_PRORROGACAO_DIAS} dias (a prorrogação só pode ser feita uma vez).
+            {p.prorrogacaoMotivo && <> Motivo: {p.prorrogacaoMotivo}</>}
+          </Aviso>
+        )}
+        {eu === "servidor" && p.status === "aberto" && !p.prorrogadoEm && nivelPrazo(p) !== "vencido" && <Prorrogacao p={p} />}
         {erro && <Aviso>{erro}</Aviso>}
         {corpo}
       </Cartao>

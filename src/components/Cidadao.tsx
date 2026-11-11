@@ -6,7 +6,7 @@ import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
 import { TIPOS, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
-import { Aviso, Botao, Campo, Cartao, Carregando, Selo, dataBR, diasRestantes } from "./ui";
+import { Aviso, Botao, Campo, Cartao, Carregando, Selo, dataBR, rotuloPrazo } from "./ui";
 import { ProtocoloDetalhe, SeletorAnexos, gravarMidias, prepararAnexos, useAnexos, useLimpezaConversas } from "./Conversa";
 
 function gerarNumero(): string {
@@ -141,8 +141,8 @@ export function MeusProtocolos({ abrir, selecionado, limparSelecao }: { abrir: (
           <p className="mt-1 font-semibold">{TIPOS[p.tipo] ?? p.assunto ?? "Manifestação"}</p>
           <p className="text-sm text-slate-700">{p.secretariaNome} · {dataBR(p.criadoEm)}</p>
           {p.status === "respondido" && p.ultimaMsgPor === "servidor" && <p className="mt-1 text-xs font-semibold text-emerald-800">Há resposta da secretaria</p>}
-          {p.status === "aberto" && diasRestantes(p) !== null && (
-            <p className="mt-1 flex items-center gap-1 text-xs text-amber-800"><Clock className="size-3" aria-hidden /> Prazo: {diasRestantes(p)} dias</p>
+          {p.status === "aberto" && rotuloPrazo(p) && (
+            <p className="mt-1 flex items-center gap-1 text-xs text-amber-800"><Clock className="size-3" aria-hidden /> {rotuloPrazo(p)!.texto}</p>
           )}
         </button>
       ))}
@@ -189,8 +189,8 @@ export function PainelAvisos({ abrirProtocolo }: { abrirProtocolo: (id: string) 
       <h2 className="flex items-center gap-2 text-lg font-semibold"><Bell className="size-5" aria-hidden /> Avisos</h2>
       {visiveis.length === 0 && <Cartao><p className="text-slate-600">Nenhum aviso no momento.</p></Cartao>}
       {visiveis.map((n) => (
-        <Cartao key={n.id} className={n.tipo === "resposta" ? "border-emerald-300 bg-emerald-50" : n.tipo === "aviso" ? "border-amber-300 bg-amber-50" : ""}>
-          <p className="text-sm font-medium">{n.tipo === "resposta" ? "Resposta recebida" : n.tipo === "aviso" ? "Aviso da prefeitura" : "Protocolo registrado"}</p>
+        <Cartao key={n.id} className={n.tipo === "resposta" ? "border-emerald-300 bg-emerald-50" : n.tipo === "aviso" || n.tipo === "prorrogacao" ? "border-amber-300 bg-amber-50" : ""}>
+          <p className="text-sm font-medium">{n.tipo === "resposta" ? "Resposta recebida" : n.tipo === "aviso" ? "Aviso da prefeitura" : n.tipo === "prorrogacao" ? "Prazo prorrogado" : "Protocolo registrado"}</p>
           <p className="mt-1 whitespace-pre-line text-slate-800">{n.mensagem}</p>
           <p className="mt-1 text-xs text-slate-600">{dataBR(n.criadoEm)} · {restante(n, agora)}</p>
           <div className="mt-2 flex gap-2">

@@ -62,7 +62,7 @@ export function Indicadores({ secretarias }: { secretarias: Secretaria[] }) {
         const l = get(d.get("secretariaId"), d.get("secretariaNome") ?? "—");
         l.abertos++;
         const c = d.get("criadoEm")?.toMillis?.() as number | undefined;
-        if (c) { const dias = Math.ceil((c + 30 * DIA - agora) / DIA); if (dias < 0) l.vencidos++; else if (dias <= 5) l.vencendo++; }
+        if (c) { const dias = Math.ceil((c + (30 + (d.get("prorrogadoEm") ? 30 : 0)) * DIA - agora) / DIA); if (dias < 0) l.vencidos++; else if (dias <= 5) l.vencendo++; }
       });
       rec.forEach((d) => {
         const l = get(d.get("secretariaId"), d.get("secretariaNome") ?? "—");

@@ -431,6 +431,64 @@ describe("Limite de envios por conta (proteção contra abuso e contra o fim da 
 });
 
 // =====================================================================
+describe("12. Prazos legais: prorrogação única (Lei 13.460/2017, art. 16)", () => {
+  const prorrogacao = (db: Db, o: { nome?: string; motivo?: string; uid?: string; avisar?: boolean; quando?: Timestamp } = {}) => {
+    const b = writeBatch(db);
+    b.update(doc(db, "protocolos", NUM), { prorrogadoEm: o.quando ?? serverTimestamp(), prorrogacaoMotivo: o.motivo ?? "Necessário ouvir o setor técnico responsável.", prorrogacaoPor: o.nome ?? "Sam" });
+    if (o.avisar !== false) b.set(doc(collection(db, "notificacoes")), {
+      uid: o.uid ?? "ana", protocoloId: NUM, tipo: "prorrogacao", mensagem: "O prazo foi prorrogado.",
+      criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * DIA),
+    });
+    return b;
+  };
+  beforeEach(async () => { await semearProtocolo(); });
+
+  test("o servidor da secretaria prorroga o prazo, com motivo e aviso ao cidadão", async () => {
+    await assertSucceeds(prorrogacao(sam()).commit());
+    await assertSucceeds(getDoc(doc(ana(), "protocolos", NUM)));
+  });
+  test("só pode prorrogar UMA vez", async () => {
+    await assertSucceeds(prorrogacao(sam()).commit());
+    await assertFails(prorrogacao(sam()).commit());
+  });
+  test("o motivo é obrigatório (mínimo 10 e máximo 300 caracteres)", async () => {
+    await assertFails(prorrogacao(sam(), { motivo: "curto" }).commit());
+    await assertFails(prorrogacao(sam(), { motivo: "x".repeat(301) }).commit());
+  });
+  test("o nome registrado é o do servidor que prorrogou (não dá para assinar por outra pessoa)", async () => {
+    await assertFails(prorrogacao(sam(), { nome: "Prefeito" }).commit());
+  });
+  test("a data da prorrogação é a do servidor do Firestore, não a do aparelho", async () => {
+    await assertFails(prorrogacao(sam(), { quando: Timestamp.fromMillis(Date.now() + 60 * DIA) }).commit());
+  });
+  test("servidor de outra secretaria, cidadão e administrador não prorrogam", async () => {
+    await assertFails(prorrogacao(sol(), { nome: "Sol" }).commit());
+    await assertFails(prorrogacao(ana(), { nome: "Ana" }).commit());
+    await assertFails(prorrogacao(adm(), { nome: "Adm" }).commit());
+  });
+  test("não prorroga depois de vencido (30 dias) nem depois da 1ª resposta", async () => {
+    await env.withSecurityRulesDisabled(async (c) => { await updateDoc(doc(c.firestore(), "protocolos", NUM), { criadoEm: Timestamp.fromMillis(Date.now() - 31 * DIA) }); });
+    await assertFails(prorrogacao(sam()).commit());
+    await env.withSecurityRulesDisabled(async (c) => { await updateDoc(doc(c.firestore(), "protocolos", NUM), { criadoEm: Timestamp.now(), ...respondido }); });
+    await assertFails(prorrogacao(sam()).commit());
+  });
+  test("o aviso 'prorrogação' só nasce junto com a prorrogação, para o autor do protocolo", async () => {
+    const aviso = { uid: "ana", protocoloId: NUM, tipo: "prorrogacao", mensagem: "x", criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * DIA) };
+    await assertFails(setDoc(doc(collection(sam(), "notificacoes")), aviso));
+    await assertFails(prorrogacao(sam(), { uid: "beto" }).commit());
+  });
+  test("o cidadão lê a justificativa no próprio protocolo e o aviso", async () => {
+    await assertSucceeds(prorrogacao(sam()).commit());
+    const s = await assertSucceeds(getDocs(query(collection(ana(), "notificacoes"), where("uid", "==", "ana"))));
+    if (s.size !== 1) throw new Error(`esperava 1 aviso, veio ${s.size}`);
+  });
+  test("depois de prorrogado, a secretaria ainda responde normalmente", async () => {
+    await assertSucceeds(prorrogacao(sam()).commit());
+    await assertSucceeds(respostaServidor(sam()).commit());
+  });
+});
+
+// =====================================================================
 describe("Retenção: a conversa só é apagada 30 dias depois de concluída", () => {
   test("antes de 30 dias, ninguém apaga a conversa nem as mídias", async () => {
     await semearProtocolo(concluidoHa(29));
@@ -570,7 +628,6 @@ describe("Padrão: tudo que não foi liberado está negado", () => {
 // =====================================================================
 // Ainda NÃO existem no sistema (Fases 2 e 3 do plano). Ficam aqui como lembrete obrigatório:
 describe("Pendentes (Fases 2 e 3)", () => {
-  test.todo("12. Prorrogação de prazo (1 vez, até +30 dias, com justificativa e registro do servidor)");
   test.todo("14. Ouvidor geral acompanha e redistribui demandas, com histórico de encaminhamentos");
   test.todo("17. Isolamento entre municípios: usuário de um município não lê nem escreve em outro");
   test.todo("19. Pedidos de acesso à informação (LAI) e recursos, separados da Ouvidoria");
