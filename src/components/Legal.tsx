@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { X } from "lucide-react";
@@ -88,7 +89,7 @@ export function AceiteTermos() {
   async function aceitar() {
     setErro(""); setOcupado(true);
     try {
-      await updateDoc(doc(db, "users", perfil!.uid), { email: perfil!.email, aceiteVersao: VERSAO_TERMOS, aceiteEm: serverTimestamp() });
+      await updateDoc(docM("users", perfil!.uid), { email: perfil!.email, aceiteVersao: VERSAO_TERMOS, aceiteEm: serverTimestamp() });
       await recarregar();
     } catch (e) { setErro(mensagemDeErro(e)); } finally { setOcupado(false); }
   }

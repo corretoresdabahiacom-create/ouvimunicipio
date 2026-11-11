@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { Pencil, Trash2 } from "lucide-react";
 import { db } from "../lib/firebase";
+import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarAuditoria } from "../lib/audit";
@@ -13,7 +14,7 @@ import { Indicadores, Relatorios } from "./AdminRelatorios";
 function useColecao<T>(nome: string, mapear: (id: string, d: Record<string, unknown>) => T) {
   const [dados, setDados] = useState<T[] | null>(null);
   const [erro, setErro] = useState("");
-  useEffect(() => onSnapshot(collection(db, nome),
+  useEffect(() => onSnapshot(colM(nome),
     (s) => setDados(s.docs.map((d) => mapear(d.id, d.data()))),
     (e) => { setErro(mensagemDeErro(e)); setDados([]); }), [nome]); // eslint-disable-line react-hooks/exhaustive-deps
   return { dados, erro };
@@ -71,19 +72,19 @@ function Secretarias({ lista, equipe, auditar }: { lista: Secretaria[]; equipe: 
     const n = nome.trim();
     if (n.length < 2) return setErro("Informe o nome da secretaria.");
     try {
-      if (editando) { await updateDoc(doc(db, "secretarias", editando), { nome: n }); await auditar("secretaria.editar", n); }
-      else { await addDoc(collection(db, "secretarias"), { nome: n, ativa: true }); await auditar("secretaria.criar", n); }
+      if (editando) { await updateDoc(docM("secretarias", editando), { nome: n }); await auditar("secretaria.editar", n); }
+      else { await addDoc(colM("secretarias"), { nome: n, ativa: true }); await auditar("secretaria.criar", n); }
       setNome(""); setEditando(null);
     } catch (err) { setErro(mensagemDeErro(err)); }
   }
   async function alternar(s: Secretaria) {
-    try { await updateDoc(doc(db, "secretarias", s.id), { ativa: !s.ativa }); await auditar("secretaria.editar", s.nome, s.ativa ? "desativada" : "ativada"); }
+    try { await updateDoc(docM("secretarias", s.id), { ativa: !s.ativa }); await auditar("secretaria.editar", s.nome, s.ativa ? "desativada" : "ativada"); }
     catch (err) { setErro(mensagemDeErro(err)); }
   }
   async function excluir(s: Secretaria) {
     if (equipe.some((m) => m.secretariaId === s.id)) return setErro("Há servidores nesta secretaria. Mova ou remova-os antes.");
     if (!confirm(`Excluir a secretaria "${s.nome}"? Protocolos já enviados são mantidos.`)) return;
-    try { await deleteDoc(doc(db, "secretarias", s.id)); await auditar("secretaria.excluir", s.nome); }
+    try { await deleteDoc(docM("secretarias", s.id)); await auditar("secretaria.excluir", s.nome); }
     catch (err) { setErro(mensagemDeErro(err)); }
   }
 
@@ -128,14 +129,14 @@ function Equipe({ lista, secretarias, auditar }: { lista: MembroEquipe[]; secret
     try {
       const dados: Record<string, unknown> = { nome: f.nome.trim(), papel: f.papel, ativo: f.ativo };
       if (precisaSecretaria(f.papel)) dados.secretariaId = f.secretariaId;
-      await setDoc(doc(db, "equipe", email), dados);
+      await setDoc(docM("equipe", email), dados);
       await auditar(editando ? "servidor.editar" : "servidor.criar", email, `${PAPEL_ROTULO[f.papel]}${precisaSecretaria(f.papel) ? ` – ${secretarias.find((s) => s.id === f.secretariaId)?.nome ?? ""}` : ""}${f.ativo ? "" : " (inativo)"}`);
       setF(vazio); setEditando(false);
     } catch (err) { setErro(mensagemDeErro(err)); }
   }
   async function excluir(m: MembroEquipe) {
     if (!confirm(`Remover o acesso de ${m.nome} (${m.email})?`)) return;
-    try { await deleteDoc(doc(db, "equipe", m.email)); await auditar("servidor.excluir", m.email); }
+    try { await deleteDoc(docM("equipe", m.email)); await auditar("servidor.excluir", m.email); }
     catch (err) { setErro(mensagemDeErro(err)); }
   }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
 import { AlertTriangle, BellRing, RefreshCw, Search, Send } from "lucide-react";
 import { db } from "../lib/firebase";
+import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { publicarEstatisticas } from "../lib/estatisticas";
@@ -14,7 +15,7 @@ const LIMITE_LEITURA = 1000; // protege a cota gratuita do Firestore
 function usarTodos() {
   const [lista, setLista] = useState<Protocolo[] | null>(null);
   const [erro, setErro] = useState("");
-  useEffect(() => onSnapshot(query(collection(db, "protocolos"), orderBy("criadoEm", "desc"), limit(LIMITE_LEITURA)),
+  useEffect(() => onSnapshot(query(colM("protocolos"), orderBy("criadoEm", "desc"), limit(LIMITE_LEITURA)),
     (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Protocolo)),
     (e) => { setErro(mensagemDeErro(e)); setLista([]); }), []);
   return { lista, erro };
@@ -22,7 +23,7 @@ function usarTodos() {
 
 function usarSecretarias() {
   const [lista, setLista] = useState<Secretaria[]>([]);
-  useEffect(() => onSnapshot(collection(db, "secretarias"),
+  useEffect(() => onSnapshot(colM("secretarias"),
     (s) => setLista(s.docs.map((d) => ({ id: d.id, nome: String(d.data().nome), ativa: d.data().ativa === true }))
       .sort((a, b) => a.nome.localeCompare(b.nome))), () => setLista([])), []);
   return lista;
@@ -49,8 +50,8 @@ function Acoes({ p, secretarias }: { p: Protocolo; secretarias: Secretaria[] }) 
     try {
       const n = (p.encaminhamentos ?? 0) + 1;
       const lote = writeBatch(db);
-      lote.update(doc(db, "protocolos", p.id), { secretariaId: dest.id, secretariaNome: dest.nome, encaminhadoEm: serverTimestamp(), encaminhamentos: n });
-      lote.set(doc(db, "protocolos", p.id, "historico", `h${n}`), {
+      lote.update(docM("protocolos", p.id), { secretariaId: dest.id, secretariaNome: dest.nome, encaminhadoEm: serverTimestamp(), encaminhamentos: n });
+      lote.set(docM("protocolos", p.id, "historico", `h${n}`), {
         de: p.secretariaId, deNome: p.secretariaNome, para: dest.id, paraNome: dest.nome,
         por: perfil.nome, motivo: motivo.trim(), criadoEm: serverTimestamp(),
       });
@@ -63,7 +64,7 @@ function Acoes({ p, secretarias }: { p: Protocolo; secretarias: Secretaria[] }) 
     setErro(""); setOk(""); setOcupado(true);
     try {
       const lote = writeBatch(db);
-      lote.update(doc(db, "protocolos", p.id), { cobradoEm: serverTimestamp() });
+      lote.update(docM("protocolos", p.id), { cobradoEm: serverTimestamp() });
       await lote.commit();
       setOk("Cobrança registrada. A secretaria verá o aviso no protocolo.");
     } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
@@ -122,7 +123,7 @@ export function PainelOuvidor() {
   useEffect(() => {
     if (!lista || automatico.current || !perfil) return;
     automatico.current = true;
-    getDoc(doc(db, "estatisticas", "atual")).then((s) => {
+    getDoc(docM("estatisticas", "atual")).then((s) => {
       const t = s.exists() ? (s.data().geradoEm?.toMillis?.() ?? 0) : 0;
       if (Date.now() - t > 12 * 3_600_000) void publicar(lista, false);
     }).catch(() => undefined);

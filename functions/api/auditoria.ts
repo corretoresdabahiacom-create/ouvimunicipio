@@ -34,10 +34,10 @@ const ACOES: Record<string, string> = {
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const { request, env } = context;
   try {
-    const adm = await exigirAdmin(request, env.FIREBASE_PROJECT_ID);
+    const body: any = await request.json().catch(() => ({}));
+    const adm = await exigirAdmin(request, env.FIREBASE_PROJECT_ID, body.municipio);
     if (adm instanceof Response) return adm;
 
-    const body: any = await request.json().catch(() => ({}));
     const titulo = ACOES[String(body.acao)];
     if (!titulo) return resp(400, { error: "Ação inválida." });
     const alvo = String(body.alvo ?? "").slice(0, 200);
@@ -45,7 +45,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
     const quando = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
     const html = `<h2>${esc(titulo)}</h2>
-<p><b>Quem:</b> ${esc(adm.email)}<br><b>Quando:</b> ${esc(quando)} (Brasília)<br><b>Alvo:</b> ${esc(alvo)}</p>
+<p><b>Município:</b> ${esc(adm.municipio)}<br><b>Quem:</b> ${esc(adm.email)}<br><b>Quando:</b> ${esc(quando)} (Brasília)<br><b>Alvo:</b> ${esc(alvo)}</p>
 ${detalhe ? `<p><b>Detalhes:</b> ${esc(detalhe)}</p>` : ""}
 <p style="color:#666;font-size:12px">Registro automático de auditoria – Ouvidoria Municipal.</p>`;
 
@@ -55,7 +55,7 @@ ${detalhe ? `<p><b>Detalhes:</b> ${esc(detalhe)}</p>` : ""}
       body: JSON.stringify({
         from: env.RESEND_FROM || "Ouvidoria Auditoria <onboarding@resend.dev>",
         to: [env.AUDIT_EMAIL],
-        subject: `[Auditoria] ${titulo}: ${alvo}`.slice(0, 200),
+        subject: `[Auditoria ${adm.municipio}] ${titulo}: ${alvo}`.slice(0, 200),
         html,
       }),
     });

@@ -5,27 +5,61 @@ service cloud.firestore {
     // Padrão: tudo negado.
     match /{document=**} { allow read, write: if false; }
 
+    // ---------- SUPERADMIN (dono do SaaS) ----------
+    // Cadastrado só no console do Firebase (ninguém se promove pelo app). Cria/suspende municípios e o 1º admin de cada um.
+    // NÃO lê protocolos, conversas, mídias, histórico nem usuários de nenhum município.
+    function superadmin() {
+      return request.auth != null && request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/superadmins/$(request.auth.token.email));
+    }
+    match /superadmins/{email} {
+      allow read: if superadmin() && request.auth.token.email == email;
+      allow write: if false;
+    }
+
+    // ---------- municípios ----------
+    // O ID é o "slug" do endereço (ex.: /itabuna). Tudo de um município fica DENTRO do caminho dele.
+    match /municipios/{mid} {
+      allow get: if true;           // nome e situação (ativo) aparecem antes do login
+      allow list: if superadmin();
+      allow create: if superadmin() && mid.matches('[a-z0-9-]{2,40}')
+        && request.resource.data.keys().hasOnly(['nome', 'ativo', 'plano', 'criadoEm'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
+        && request.resource.data.ativo is bool
+        && request.resource.data.plano in ['basico', 'padrao', 'completo']
+        && request.resource.data.criadoEm == request.time;
+      allow update: if superadmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'ativo', 'plano'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
+        && request.resource.data.ativo is bool
+        && request.resource.data.plano in ['basico', 'padrao', 'completo'];
+      allow delete: if false;
+
     // ---------- helpers ----------
     function logado()     { return request.auth != null; }
+    // O município (mid) vem do caminho. Ele só existe se o SUPERADMIN o criou, e só aceita escrita de cidadãos se estiver ativo.
+    function municipioAtivo() {
+      return get(/databases/$(database)/documents/municipios/$(mid)).data.get('ativo', false) == true;
+    }
     // e-mail confirmado (sem checar bloqueio)
     function basico()     { return logado() && request.auth.token.email_verified == true; }
     // conta liberada: e-mail confirmado e NÃO bloqueada/excluída pelo admin
     function situacaoOk() {
-      return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('situacao', 'ativo') == 'ativo';
+      return !exists(/databases/$(database)/documents/municipios/$(mid)/users/$(request.auth.uid))
+        || get(/databases/$(database)/documents/municipios/$(mid)/users/$(request.auth.uid)).data.get('situacao', 'ativo') == 'ativo';
     }
     function verificado() { return basico() && situacaoOk(); }
     // aceitou os termos de uso / política de privacidade (obrigatório para enviar mensagens)
     function termosOk() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('aceiteVersao', '') != '';
+      return get(/databases/$(database)/documents/municipios/$(mid)/users/$(request.auth.uid)).data.get('aceiteVersao', '') != '';
     }
     function meuEmail()   { return request.auth.token.email; }
     // Perfil do usuário como ficará DEPOIS do lote (usado no limite de envios).
-    function meuPerfilDepois() { return getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
-    function docEquipe()  { return get(/databases/$(database)/documents/equipe/$(meuEmail())).data; }
+    function meuPerfilDepois() { return getAfter(/databases/$(database)/documents/municipios/$(mid)/users/$(request.auth.uid)).data; }
+    function docEquipe()  { return get(/databases/$(database)/documents/municipios/$(mid)/equipe/$(meuEmail())).data; }
     function naEquipe() {
       return verificado()
-        && exists(/databases/$(database)/documents/equipe/$(meuEmail()))
+        && exists(/databases/$(database)/documents/municipios/$(mid)/equipe/$(meuEmail()))
         && docEquipe().ativo == true;
     }
     function ehAdmin()    { return naEquipe() && docEquipe().papel == 'admin'; }
@@ -46,7 +80,7 @@ service cloud.firestore {
     }
     match /users/{uid} {
       allow read: if basico() && (request.auth.uid == uid || ehAdmin());
-      allow create: if basico() && request.auth.uid == uid
+      allow create: if basico() && municipioAtivo() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['nome', 'telefone', 'email', 'criadoEm', 'situacao', 'aceiteEm', 'aceiteVersao'])
         && aceiteOk(request.resource.data)
         && request.resource.data.situacao == 'ativo'
@@ -108,7 +142,12 @@ service cloud.firestore {
     // O ID do documento é o e-mail em minúsculas. A pessoa se cadastra normalmente,
     // confirma o e-mail e, se estiver aqui e ativa, ganha o papel correspondente.
     match /equipe/{email} {
-      allow read: if verificado() && (ehAdmin() || meuEmail() == email);
+      allow read: if verificado() && (ehAdmin() || meuEmail() == email || superadmin());
+      // o SUPERADMIN só cadastra administradores do município (nunca o próprio e-mail); o resto é do admin do município
+      allow create, update: if superadmin() && email != meuEmail()
+        && request.resource.data.keys().hasOnly(['nome', 'papel', 'ativo'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
+        && request.resource.data.papel == 'admin' && request.resource.data.ativo is bool;
       allow create, update: if ehAdmin()
         && request.resource.data.keys().hasOnly(['nome', 'papel', 'secretariaId', 'ativo'])
         && request.resource.data.nome is string && request.resource.data.nome.size() <= 120
@@ -116,7 +155,7 @@ service cloud.firestore {
         && request.resource.data.ativo is bool
         && (request.resource.data.papel in ['admin', 'ouvidor', 'prefeito'] || (
               request.resource.data.secretariaId is string
-              && exists(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId))))
+              && exists(/databases/$(database)/documents/municipios/$(mid)/secretarias/$(request.resource.data.secretariaId))))
         // o admin não pode se rebaixar nem se desativar (evita ficar sem administrador)
         && (email != meuEmail() || (request.resource.data.papel == 'admin' && request.resource.data.ativo == true));
       allow delete: if ehAdmin() && email != meuEmail();
@@ -146,7 +185,7 @@ service cloud.firestore {
         ehAdmin() || ehOuvidor()
       );
 
-      allow create: if verificado() && termosOk()
+      allow create: if verificado() && termosOk() && municipioAtivo()
         && numero.matches('OUV-[0-9]{4}-[A-Z0-9]{8}')
         && request.resource.data.keys().hasOnly(
              ['numero', 'autorUid', 'secretariaId', 'secretariaNome', 'tipo', 'status', 'criadoEm', 'ultimaMsgPor'])
@@ -157,9 +196,9 @@ service cloud.firestore {
         && request.resource.data.ultimaMsgPor == 'cidadao'
         && request.resource.data.criadoEm == request.time
         && meuPerfilDepois().get('ultimoEnvio', '') == numero
-        && get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.ativa == true
+        && get(/databases/$(database)/documents/municipios/$(mid)/secretarias/$(request.resource.data.secretariaId)).data.ativa == true
         && request.resource.data.secretariaNome ==
-           get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.nome;
+           get(/databases/$(database)/documents/municipios/$(mid)/secretarias/$(request.resource.data.secretariaId)).data.nome;
 
       allow update: if verificado() && (
         // servidor da secretaria responde (a 1ª resposta marca "respondido" e a data)
@@ -214,10 +253,10 @@ service cloud.firestore {
           && request.resource.data.encaminhadoEm == request.time
           && request.resource.data.encaminhamentos == resource.data.get('encaminhamentos', 0) + 1
           && request.resource.data.encaminhamentos <= 20
-          && get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.ativa == true
+          && get(/databases/$(database)/documents/municipios/$(mid)/secretarias/$(request.resource.data.secretariaId)).data.ativa == true
           && request.resource.data.secretariaNome ==
-             get(/databases/$(database)/documents/secretarias/$(request.resource.data.secretariaId)).data.nome
-          && existsAfter(/databases/$(database)/documents/protocolos/$(numero)/historico/$('h' + string(request.resource.data.encaminhamentos))))
+             get(/databases/$(database)/documents/municipios/$(mid)/secretarias/$(request.resource.data.secretariaId)).data.nome
+          && existsAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)/historico/$('h' + string(request.resource.data.encaminhamentos))))
         ||
         // cobrança interna do ouvidor ao setor (o cidadão não vê); só em protocolo ainda sem resposta
         (ehOuvidor() && resource.data.status == 'aberto'
@@ -235,8 +274,8 @@ service cloud.firestore {
 
       // Conversa: só o autor e a secretaria destinatária leem. ID m00…m49 (máx. 50 mensagens).
       // m00 nasce junto com o protocolo (mesmo lote). Mensagens são imutáveis.
-      match /mensagens/{mid} {
-        function pai() { return get(/databases/$(database)/documents/protocolos/$(numero)).data; }
+      match /mensagens/{msg} {
+        function pai() { return get(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data; }
         function participante() {
           return pai().autorUid == request.auth.uid
             || (ehServidor() && pai().secretariaId == minhaSecretaria());
@@ -244,22 +283,22 @@ service cloud.firestore {
         // o ouvidor geral lê as conversas (apenas leitura) para encaminhar ao setor responsável
         allow read: if verificado() && (participante() || ehOuvidor());
         allow create: if verificado() && termosOk()
-          && mid.matches('m[0-4][0-9]')
+          && municipioAtivo() && msg.matches('m[0-4][0-9]')
           && request.resource.data.keys().hasOnly(['de', 'autorUid', 'texto', 'assunto', 'anexos', 'criadoEm'])
           && request.resource.data.autorUid == request.auth.uid
           && request.resource.data.criadoEm == request.time
           && request.resource.data.texto is string && request.resource.data.texto.size() >= 1 && request.resource.data.texto.size() <= 5000
           && request.resource.data.anexos is list && request.resource.data.anexos.size() <= 5
           && (
-            (mid == 'm00' && request.resource.data.de == 'cidadao'
+            (msg == 'm00' && request.resource.data.de == 'cidadao'
               && request.resource.data.assunto is string && request.resource.data.assunto.size() >= 3 && request.resource.data.assunto.size() <= 120
-              && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.autorUid == request.auth.uid
-              && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.criadoEm == request.time)
+              && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.autorUid == request.auth.uid
+              && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.criadoEm == request.time)
             ||
-            (mid != 'm00' && !request.resource.data.keys().hasAny(['assunto'])
+            (msg != 'm00' && !request.resource.data.keys().hasAny(['assunto'])
               && pai().status in ['aberto', 'respondido']
               && ((request.resource.data.de == 'cidadao' && pai().autorUid == request.auth.uid
-                    && meuPerfilDepois().get('ultimoEnvio', '') == numero + '/' + mid)
+                    && meuPerfilDepois().get('ultimoEnvio', '') == numero + '/' + msg)
                   || (request.resource.data.de == 'servidor' && ehServidor() && pai().secretariaId == minhaSecretaria())))
           );
         allow update: if false;
@@ -269,7 +308,7 @@ service cloud.firestore {
       // Mídias (imagens comprimidas e vídeos curtos) em partes, sem Storage.
       // k = "<mensagem 00-49>_<anexo 0-4>_<parte 0-11>"; só nascem junto com a mensagem (mesmo lote), do mesmo autor.
       match /midias/{k} {
-        function paiM() { return get(/databases/$(database)/documents/protocolos/$(numero)).data; }
+        function paiM() { return get(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data; }
         allow read: if verificado() && (
           paiM().autorUid == request.auth.uid ||
           (ehServidor() && paiM().secretariaId == minhaSecretaria()) ||
@@ -277,8 +316,8 @@ service cloud.firestore {
         );
         allow create: if basico()
           && k.matches('[0-4][0-9]_[0-4]_([0-9]|1[01])')
-          && getAfter(/databases/$(database)/documents/protocolos/$(numero)/mensagens/$('m' + k.split('_')[0])).data.autorUid == request.auth.uid
-          && getAfter(/databases/$(database)/documents/protocolos/$(numero)/mensagens/$('m' + k.split('_')[0])).data.criadoEm == request.time
+          && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)/mensagens/$('m' + k.split('_')[0])).data.autorUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)/mensagens/$('m' + k.split('_')[0])).data.criadoEm == request.time
           && request.resource.data.keys().hasOnly(['k', 'mime', 'data'])
           && request.resource.data.k == k
           && request.resource.data.mime.matches('(image/(jpeg|png|webp)|video/(mp4|webm|quicktime))')
@@ -292,7 +331,7 @@ service cloud.firestore {
       // Histórico de encaminhamentos: criado só pelo ouvidor geral, junto com o encaminhamento (mesmo lote), imutável.
       // Lê: o autor, a secretaria que está com o protocolo e o ouvidor.
       match /historico/{hid} {
-        function paiH() { return get(/databases/$(database)/documents/protocolos/$(numero)).data; }
+        function paiH() { return get(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data; }
         allow read: if verificado() && (
           paiH().autorUid == request.auth.uid ||
           (ehServidor() && paiH().secretariaId == minhaSecretaria()) ||
@@ -308,10 +347,10 @@ service cloud.firestore {
           && request.resource.data.de == paiH().secretariaId
           && request.resource.data.deNome == paiH().secretariaNome
           && request.resource.data.para != request.resource.data.de
-          && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.secretariaId == request.resource.data.para
-          && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.secretariaNome == request.resource.data.paraNome
-          && getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.encaminhadoEm == request.time
-          && hid == 'h' + string(getAfter(/databases/$(database)/documents/protocolos/$(numero)).data.encaminhamentos);
+          && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.secretariaId == request.resource.data.para
+          && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.secretariaNome == request.resource.data.paraNome
+          && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.encaminhadoEm == request.time
+          && hid == 'h' + string(getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.encaminhamentos);
         allow update, delete: if false;
       }
     }
@@ -358,7 +397,7 @@ service cloud.firestore {
       allow create: if verificado() && camposOk()
         && request.resource.data.tipo == 'recebido'
         && request.resource.data.uid == request.auth.uid
-        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.auth.uid
         && expiraEntre(duration.value(29, 'd'), duration.value(31, 'd'))
         ||
       // "Aviso": mensagem do ADMIN para um usuário (sem protocolo). Dura de 1 a 31 dias.
@@ -371,17 +410,17 @@ service cloud.firestore {
       // "Resposta": criada pelo servidor junto com a resposta (mesmo lote). Some em 24 horas (tolerância de ±30 min para o relógio do aparelho).
         ehServidor() && camposOk()
         && request.resource.data.tipo == 'resposta'
-        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.status == 'respondido'
-        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
-        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
+        && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(request.resource.data.protocoloId)).data.status == 'respondido'
+        && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
+        && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
         && expiraEntre(duration.value(1410, 'm'), duration.value(1470, 'm'))
         ||
       // "Prorrogação": o cidadão é comunicado (Lei 13.460/2017). Criada pelo servidor junto com a prorrogação (mesmo lote). Dura ~30 dias.
         ehServidor() && camposOk()
         && request.resource.data.tipo == 'prorrogacao'
-        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.get('prorrogadoEm', null) == request.time
-        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
-        && getAfter(/databases/$(database)/documents/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
+        && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(request.resource.data.protocoloId)).data.get('prorrogadoEm', null) == request.time
+        && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(request.resource.data.protocoloId)).data.autorUid == request.resource.data.uid
+        && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(request.resource.data.protocoloId)).data.secretariaId == minhaSecretaria()
         && expiraEntre(duration.value(29, 'd'), duration.value(31, 'd'));
     }
 
@@ -415,6 +454,8 @@ service cloud.firestore {
         && request.resource.data.ordem is int && request.resource.data.ordem >= 0 && request.resource.data.ordem <= 999
         && request.resource.data.criadoEm is timestamp;
       allow delete: if ehAdmin();
+    }
+
     }
   }
 }

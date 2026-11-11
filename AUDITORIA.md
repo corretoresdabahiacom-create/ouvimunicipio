@@ -94,3 +94,19 @@ com regras antigas não encaminha; regras novas com app antigo funcionam, pois s
 Limitações conhecidas dos prazos: as regras não conseguem **obrigar** o aviso ao cidadão (o app sempre o cria no mesmo
 lote, mas um servidor mal-intencionado poderia prorrogar sem avisar); a contagem é em dias corridos, sem suspensão por
 feriados (a regulamentação municipal pode definir de outro modo).
+
+---
+
+# Fase 3 — SaaS multi-município (andamento)
+
+| Item | Situação |
+|---|---|
+| Multi-município por caminho (`municipios/{id}/…`), um único projeto Firebase | **Feito, aguardando os testes.** Detalhes e ordem de publicação em `PLANO_FASE3.md` |
+| SUPERADMIN (por e-mail, cadastrado só no console) | **Feito, aguardando os testes.** Cria/suspende município, troca plano, cadastra o 1º admin. Não lê conversas nem usuários |
+| Isolamento entre municípios nas regras | **Feito, aguardando os testes** (16 casos novos; total 135, ainda NÃO executados) |
+| Migração dos dados atuais | Script pronto (`scripts/`), **não executado** (exige a chave de serviço, que é sua) |
+| Planos | Só rótulo (básico/padrão/completo); sem limite aplicado nem cobrança |
+| Monitoramento | Não iniciado (sugestões em `PLANO_FASE3.md`) |
+| Excluir conta × vários municípios (LGPD) | **Pendente de decisão** (ver limitações no plano) |
+
+**Risco principal:** mudança grande em todas as regras, nunca executada. Não publique nada antes do "Verificação" verde e do teste manual.

@@ -5,6 +5,7 @@ import {
 } from "firebase/firestore";
 import { ArrowDown, ArrowUp, Ban, ImagePlus, Mail, Pencil, Trash2, Undo2 } from "lucide-react";
 import { db } from "../lib/firebase";
+import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { imagemParaDataUrl } from "../lib/media";
@@ -49,7 +50,7 @@ export function Aparencia({ auditar }: { auditar: Auditar }) {
     if (contraste < 4.5) return setErro("A cor está clara demais: o texto branco ficaria difícil de ler. Escolha uma cor mais escura.");
     setOcupado(true);
     try {
-      await setDoc(doc(db, "config", "site"), { nome: nome.trim(), cor: cor.toLowerCase(), logo, contato: contato.trim(), atualizadoEm: serverTimestamp() });
+      await setDoc(docM("config", "site"), { nome: nome.trim(), cor: cor.toLowerCase(), logo, contato: contato.trim(), atualizadoEm: serverTimestamp() });
       setMsg("Aparência salva. Já vale para todos os usuários.");
       await auditar("config.editar", nome.trim(), `cor ${cor}${logo ? ", com logomarca" : ", sem logomarca"}`);
     } catch (err) { setErro(mensagemDeErro(err)); }
@@ -118,7 +119,7 @@ export function Publicidade({ auditar }: { auditar: Auditar }) {
   const [ocupado, setOcupado] = useState(false);
   const arq = useRef<HTMLInputElement>(null);
 
-  useEffect(() => onSnapshot(collection(db, "anuncios"),
+  useEffect(() => onSnapshot(colM("anuncios"),
     (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Anuncio).sort((a, b) => a.ordem - b.ordem)),
     (e) => { setErro(mensagemDeErro(e)); setLista([]); }), []);
 
@@ -142,11 +143,11 @@ export function Publicidade({ auditar }: { auditar: Auditar }) {
     setOcupado(true);
     try {
       if (editando) {
-        await updateDoc(doc(db, "anuncios", editando.id), { titulo: titulo.trim(), link: l, imagem });
+        await updateDoc(docM("anuncios", editando.id), { titulo: titulo.trim(), link: l, imagem });
         await auditar("anuncio.editar", titulo.trim());
       } else {
         const ordem = (lista ?? []).reduce((m, a) => Math.max(m, a.ordem), -1) + 1;
-        await addDoc(collection(db, "anuncios"), { titulo: titulo.trim(), link: l, imagem, ativo: true, ordem, criadoEm: serverTimestamp() });
+        await addDoc(colM("anuncios"), { titulo: titulo.trim(), link: l, imagem, ativo: true, ordem, criadoEm: serverTimestamp() });
         await auditar("anuncio.criar", titulo.trim(), l);
       }
       limpar();
@@ -155,20 +156,20 @@ export function Publicidade({ auditar }: { auditar: Auditar }) {
   }
 
   async function alternar(a: Anuncio) {
-    try { await updateDoc(doc(db, "anuncios", a.id), { ativo: !a.ativo }); await auditar("anuncio.editar", a.titulo, a.ativo ? "desativado" : "ativado"); }
+    try { await updateDoc(docM("anuncios", a.id), { ativo: !a.ativo }); await auditar("anuncio.editar", a.titulo, a.ativo ? "desativado" : "ativado"); }
     catch (err) { setErro(mensagemDeErro(err)); }
   }
   async function mover(a: Anuncio, dir: -1 | 1) {
     const l = lista ?? []; const i = l.findIndex((x) => x.id === a.id); const o = l[i + dir];
     if (!o) return;
     try {
-      await updateDoc(doc(db, "anuncios", a.id), { ordem: o.ordem });
-      await updateDoc(doc(db, "anuncios", o.id), { ordem: a.ordem });
+      await updateDoc(docM("anuncios", a.id), { ordem: o.ordem });
+      await updateDoc(docM("anuncios", o.id), { ordem: a.ordem });
     } catch (err) { setErro(mensagemDeErro(err)); }
   }
   async function excluir(a: Anuncio) {
     if (!confirm(`Excluir o anúncio "${a.titulo}"?`)) return;
-    try { await deleteDoc(doc(db, "anuncios", a.id)); await auditar("anuncio.excluir", a.titulo); }
+    try { await deleteDoc(docM("anuncios", a.id)); await auditar("anuncio.excluir", a.titulo); }
     catch (err) { setErro(mensagemDeErro(err)); }
   }
 
@@ -247,7 +248,7 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
 
   async function contar() {
     try {
-      const col = collection(db, "users");
+      const col = colM("users");
       setTotal((await getCountFromServer(col)).data().count);
       setBloqueados((await getCountFromServer(query(col, where("situacao", "==", "bloqueado")))).data().count);
     } catch { /* contagem é opcional */ }
@@ -258,7 +259,7 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
     try {
       let cursor = ultimo, novos: UsuarioApp[] = [], acabou = fim;
       for (let p = 0; p < maisPaginas && !acabou; p++) {
-        const q = query(collection(db, "users"), orderBy("criadoEm", "desc"), limit(PAGINA), ...(cursor ? [startAfter(cursor)] : []));
+        const q = query(colM("users"), orderBy("criadoEm", "desc"), limit(PAGINA), ...(cursor ? [startAfter(cursor)] : []));
         const s = await getDocs(q);
         novos = novos.concat(s.docs.map((d) => ({
           id: d.id, nome: d.get("nome") ?? "", email: d.get("email") ?? "", telefone: d.get("telefone") ?? undefined,
@@ -294,7 +295,7 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
   async function buscarTodosAtivos() {
     setBuscandoTodos(true); setErro("");
     try {
-      const col = collection(db, "users");
+      const col = colM("users");
       const desde = periodo === "todos" ? null : Timestamp.fromMillis(Date.now() - Number(periodo) * 86_400_000);
       const out: UsuarioApp[] = [];
       let cursor: QueryDocumentSnapshot | null = null;
@@ -330,7 +331,7 @@ export function Usuarios({ auditar }: { auditar: Auditar }) {
     if (nova === "excluido" && !confirm(`EXCLUIR ${rotulo}?\n\nNome, e-mail e telefone serão apagados da lista e a conta ficará bloqueada para sempre. As mensagens já enviadas ficam registradas na secretaria. Isso não pode ser desfeito.`)) return;
     if (nova === "bloqueado" && !confirm(`Bloquear ${rotulo}? A pessoa não poderá mais usar o app até ser desbloqueada.`)) return;
     try {
-      const ref = doc(db, "users", u.id);
+      const ref = docM("users", u.id);
       if (nova === "excluido") await updateDoc(ref, { situacao: "excluido", nome: "(removido)", email: "", telefone: deleteField() });
       else await updateDoc(ref, { situacao: nova });
       await auditar(nova === "ativo" ? "usuario.desbloquear" : nova === "bloqueado" ? "usuario.bloquear" : "usuario.excluir", u.email || u.id, u.nome);
@@ -449,7 +450,7 @@ function EnviarMensagem({ destinatarios, auditar, fechar }: { destinatarios: Usu
         const expiraEm = Timestamp.fromMillis(Date.now() + dias * 86_400_000);
         for (let i = 0; i < destinatarios.length; i += 400) {
           const lote = writeBatch(db);
-          destinatarios.slice(i, i + 400).forEach((u) => lote.set(doc(collection(db, "notificacoes")), {
+          destinatarios.slice(i, i + 400).forEach((u) => lote.set(doc(colM("notificacoes")), {
             uid: u.id, protocoloId: "", tipo: "aviso", mensagem: `${a}\n${t}`, criadoEm: serverTimestamp(), expiraEm,
           }));
           await lote.commit(); app += Math.min(400, destinatarios.length - i);

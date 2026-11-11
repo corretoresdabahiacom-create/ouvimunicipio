@@ -1,4 +1,4 @@
-# Fase 3 — SaaS multi-município (plano, ainda NÃO implementado)
+# Fase 3 — SaaS multi-município (IMPLEMENTADO, aguardando testes)
 
 Decisões do dono: **um único projeto Firebase** (plano gratuito) e **SUPERADMIN só por e-mail cadastrado**.
 
@@ -19,8 +19,8 @@ municipios/{mid}/secretarias/{id}
 municipios/{mid}/protocolos/{numero}/…   mensagens, midias, historico
 municipios/{mid}/estatisticas/atual
 municipios/{mid}/anuncios/{id}
-users/{uid}                              cidadão (global); campo municipioId = onde se cadastrou
-notificacoes/{id}                        continua do dono (uid), com municipioId
+municipios/{mid}/users/{uid}             perfil do cidadão POR município (mesma conta de login, perfis separados)
+municipios/{mid}/notificacoes/{id}
 ```
 
 Por que caminho e não só campo: cada regra começa em `match /municipios/{mid}/…` e o papel é lido em
@@ -69,3 +69,24 @@ Painel do Firebase mostra uso de leituras/escritas contra a cota gratuita; o sup
 - Mudança grande e de uma vez (regras + cliente + migração + funções): fazer em commits pequenos, regras antes do cliente, tudo verde no CI.
 - Custo de leituras sobe com a quantidade de municípios (cada painel lê o seu); mitigado pelo caminho (consultas limitadas ao município).
 - Cidadão em dois municípios usa a mesma conta; aceito (conta global, protocolos separados).
+
+## Como ficou implementado (resumo)
+- `firestore.rules`: tudo sob `match /municipios/{mid}`; `superadmins/{email}` só no console; `municipios/{mid}` (get público, list e escrita só do superadmin, sem exclusão); `municipioAtivo()` exigido para cadastro de perfil, novo protocolo e novas mensagens. Backup das regras antigas: não está no Git (só o histórico anterior).
+- Cliente: `src/lib/municipio.tsx` (endereço `/slug`, `colM()`/`docM()`), `SuperAdmin.tsx` (em `/superadmin`), `Raiz0` leva `/` ao último município usado ou a `VITE_MUNICIPIO_PADRAO`.
+- Funções do Cloudflare: o admin é conferido em `municipios/{mid}/equipe/{email}` (o cliente envia `municipio`).
+- `scripts/migrar-para-municipio.mjs`: backup + cópia + conferência de contagens; não apaga nada.
+- Testes: 16 novos casos de isolamento e superadmin em `rules-tests` (total 135).
+
+## Ordem para colocar no ar (NÃO inverter)
+1. Push; Actions "Verificação" verde.
+2. Chave de serviço (segredo seu) e `node migrar-para-municipio.mjs … --dry-run`; depois sem `--dry-run`. Guarde o `backup-*.ndjson`.
+3. No Cloudflare, defina `VITE_MUNICIPIO_PADRAO` = o slug (ex.: itabuna) e **publique as regras novas e o app juntos** (app novo com regras antigas, ou o contrário, deixa o sistema fora do ar por alguns minutos).
+4. Teste: `/slug`, login, enviar mensagem, responder, ouvidor, prefeito, `/superadmin`.
+5. Só depois (dias) apagar à mão os dados do formato antigo.
+
+## Limitações conhecidas
+- **Excluir conta (LGPD):** o app anonimiza o perfil do município atual e apaga o login (que é global). Perfis da mesma pessoa em OUTROS municípios ficam sem login mas com nome/e-mail. Precisa de decisão (ex.: não apagar o login, ou avisar para excluir em cada município).
+- O PWA instalado abre `/` e vai ao último município usado naquele aparelho.
+- O superadmin pode cadastrar um administrador com outro e-mail dele e, por ele, ler conversas (mesmo risco A3); só o e-mail de auditoria denuncia.
+- Limites de plano (`plano`) são só informativos por enquanto; cobrança automática fora do escopo.
+- Aviso em massa e relatórios agora são por município (cada um só vê os seus).

@@ -1,0 +1,7 @@
+{
+  "name": "ouvimunicipio-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Scripts de manutenção (migração). Separado do app: não entra no build do Cloudflare.",
+  "dependencies": { "firebase-admin": "^13.0.0" }
+}

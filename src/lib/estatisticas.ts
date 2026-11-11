@@ -1,5 +1,6 @@
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { docM } from "./municipio";
 import { TIPOS, type Contagem, type Estatisticas, type Protocolo } from "./types";
 import { nivelPrazo, prazoFinal } from "../components/ui";
 
@@ -53,5 +54,5 @@ export function calcularEstatisticas(lista: Protocolo[]): Resumo {
 }
 
 export async function publicarEstatisticas(lista: Protocolo[], nome: string) {
-  await setDoc(doc(db, "estatisticas", "atual"), { ...calcularEstatisticas(lista), geradoEm: serverTimestamp(), geradoPor: nome });
+  await setDoc(docM("estatisticas", "atual"), { ...calcularEstatisticas(lista), geradoEm: serverTimestamp(), geradoPor: nome });
 }

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, type FormEvent } from "react";
 import { collection, doc, getDocs, onSnapshot, query, where, writeBatch, serverTimestamp, Timestamp, deleteDoc } from "firebase/firestore";
 import { Send, Bell, Clock } from "lucide-react";
 import { db } from "../lib/firebase";
+import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
@@ -28,7 +29,7 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
   const [ocupado, setOcupado] = useState(false);
 
   useEffect(() => {
-    getDocs(query(collection(db, "secretarias"), where("ativa", "==", true)))
+    getDocs(query(colM("secretarias"), where("ativa", "==", true)))
       .then((s) => setSecs(s.docs.map((d) => ({ id: d.id, nome: d.get("nome"), ativa: true })).sort((a, b) => a.nome.localeCompare(b.nome))))
       .catch((e) => { setErro(mensagemDeErro(e)); setSecs([]); });
   }, []);
@@ -49,16 +50,16 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
       const numero = gerarNumero();
       const lote = writeBatch(db);
       await registrarEnvio(lote, perfil.uid, numero);
-      lote.set(doc(db, "protocolos", numero), {
+      lote.set(docM("protocolos", numero), {
         numero, autorUid: perfil.uid, secretariaId: sec.id, secretariaNome: sec.nome,
         tipo, status: "aberto", ultimaMsgPor: "cidadao", criadoEm: serverTimestamp(),
       });
-      lote.set(doc(db, "protocolos", numero, "mensagens", "m00"), {
+      lote.set(docM("protocolos", numero, "mensagens", "m00"), {
         de: "cidadao", autorUid: perfil.uid, assunto: assunto.trim(), texto: mensagem.trim(),
         anexos: preparados.map((p) => p.meta), criadoEm: serverTimestamp(),
       });
       gravarMidias(lote, numero, preparados);
-      lote.set(doc(collection(db, "notificacoes")), {
+      lote.set(doc(colM("notificacoes")), {
         uid: perfil.uid, protocoloId: numero, tipo: "recebido",
         mensagem: `Protocolo ${numero} registrado para ${sec.nome}. Prazo de resposta: 30 dias.`,
         criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
@@ -112,7 +113,7 @@ export function usarProtocolos(campo: "autorUid" | "secretariaId", valor: string
   const [erro, setErro] = useState("");
   useEffect(() => {
     if (!valor) { setLista([]); return; }
-    return onSnapshot(query(collection(db, "protocolos"), where(campo, "==", valor)),
+    return onSnapshot(query(colM("protocolos"), where(campo, "==", valor)),
       (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Protocolo)
         .sort((a, b) => (b.criadoEm?.toMillis?.() ?? Date.now()) - (a.criadoEm?.toMillis?.() ?? Date.now()))),
       (e) => { setErro(mensagemDeErro(e)); setLista([]); });
@@ -158,7 +159,7 @@ export function usarNotificacoes() {
 
   useEffect(() => {
     if (!perfil) return;
-    return onSnapshot(query(collection(db, "notificacoes"), where("uid", "==", perfil.uid)),
+    return onSnapshot(query(colM("notificacoes"), where("uid", "==", perfil.uid)),
       (s) => setTodas(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Notificacao)), () => setTodas([]));
   }, [perfil]);
 
@@ -169,7 +170,7 @@ export function usarNotificacoes() {
 
   // limpeza: apaga do banco os avisos já vencidos
   useEffect(() => {
-    todas.filter((n) => n.expiraEm.toMillis() <= agora).forEach((n) => { void deleteDoc(doc(db, "notificacoes", n.id)).catch(() => undefined); });
+    todas.filter((n) => n.expiraEm.toMillis() <= agora).forEach((n) => { void deleteDoc(docM("notificacoes", n.id)).catch(() => undefined); });
   }, [todas, agora]);
 
   return { visiveis, agora };
@@ -195,7 +196,7 @@ export function PainelAvisos({ abrirProtocolo }: { abrirProtocolo: (id: string) 
           <p className="mt-1 text-xs text-slate-600">{dataBR(n.criadoEm)} · {restante(n, agora)}</p>
           <div className="mt-2 flex gap-2">
             {n.protocoloId && <Botao variante="secundario" onClick={() => abrirProtocolo(n.protocoloId)}>Abrir protocolo</Botao>}
-            <Botao variante="link" onClick={() => { void deleteDoc(doc(db, "notificacoes", n.id)); }}>Dispensar</Botao>
+            <Botao variante="link" onClick={() => { void deleteDoc(docM("notificacoes", n.id)); }}>Dispensar</Botao>
           </div>
         </Cartao>
       ))}

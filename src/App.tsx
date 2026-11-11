@@ -14,6 +14,8 @@ import { AceiteTermos } from "./components/Legal";
 import { VERSAO_TERMOS } from "./lib/types";
 import { Cabecalho, Carrossel } from "./components/Marca";
 import { SiteProvider } from "./lib/useConfig";
+import { MunicipioProvider, Raiz0, rotaAtual } from "./lib/municipio";
+const PainelSuperAdmin = lazy(() => import("./components/SuperAdmin").then((m) => ({ default: m.PainelSuperAdmin })));
 import { Aviso, Botao, Carregando, Cartao } from "./components/ui";
 
 type Aba = "nova" | "protocolos" | "avisos" | "painel" | "ouvidoria" | "prefeito" | "admin" | "perfil" | "instalar";
@@ -121,6 +123,25 @@ function Raiz() {
   return <Shell key={perfil.uid} />;
 }
 
+// /superadmin: dono do SaaS (conta cadastrada no console). Fora de qualquer município.
+function RaizSuper() {
+  const { user, superadmin, carregando, sair } = useAuth();
+  if (carregando) return <Carregando />;
+  if (!user) return <TelaAuth />;
+  if (!user.emailVerified) return <TelaConfirmarEmail />;
+  if (!superadmin) return (
+    <main className="mx-auto max-w-md space-y-3 p-4"><Aviso>Esta conta não tem acesso ao painel do SaaS.</Aviso><Botao variante="secundario" onClick={sair}>Sair</Botao></main>
+  );
+  return <Suspense fallback={<Carregando />}><PainelSuperAdmin /></Suspense>;
+}
+
 export default function App() {
-  return <SiteProvider><AuthProvider><Raiz /></AuthProvider></SiteProvider>;
+  const rota = rotaAtual();
+  if (rota.tipo === "raiz") return <Raiz0 />;
+  if (rota.tipo === "super") return <AuthProvider><RaizSuper /></AuthProvider>;
+  return (
+    <MunicipioProvider slug={rota.slug}>
+      <SiteProvider><AuthProvider><Raiz /></AuthProvider></SiteProvider>
+    </MunicipioProvider>
+  );
 }

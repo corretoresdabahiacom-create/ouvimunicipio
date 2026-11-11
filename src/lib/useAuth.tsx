@@ -1,12 +1,15 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { idMunicipio } from "./municipio";
 import { auth, db } from "./firebase";
+import { docM } from "./municipio";
 import { VERSAO_TERMOS, type Perfil, type Situacao } from "./types";
 
 interface Ctx {
   user: User | null;
   perfil: Perfil | null;
+  superadmin: boolean;
   carregando: boolean;
   erroPerfil: string;
   recarregar: () => Promise<void>;
@@ -20,7 +23,7 @@ async function carregarPerfil(user: User): Promise<Perfil> {
   const base: Perfil = { uid: user.uid, email, nome: user.displayName ?? "", papel: "cidadao", situacao: "ativo" };
 
   // Perfil básico (criado na primeira vez com e-mail confirmado).
-  const uref = doc(db, "users", user.uid);
+  const uref = docM("users", user.uid);
   const usnap = await getDoc(uref);
   if (!usnap.exists()) {
     const novo: Record<string, unknown> = { nome: (user.displayName ?? "").slice(0, 120), email, situacao: "ativo", criadoEm: serverTimestamp() };
@@ -43,7 +46,7 @@ async function carregarPerfil(user: User): Promise<Perfil> {
   if (base.situacao !== "ativo") return base; // bloqueado/excluído: sem papéis nem dados
 
   // Equipe (admin/secretário/assessor): cadastrada pelo administrador, pelo e-mail.
-  const esnap = await getDoc(doc(db, "equipe", email));
+  const esnap = await getDoc(docM("equipe", email));
   if (esnap.exists() && esnap.get("ativo") === true) {
     base.papel = esnap.get("papel");
     base.secretariaId = esnap.get("secretariaId");
@@ -55,13 +58,19 @@ async function carregarPerfil(user: User): Promise<Perfil> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [superadmin, setSuperadmin] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [erroPerfil, setErroPerfil] = useState("");
 
   const resolver = useCallback(async (u: User | null) => {
     setUser(u);
     setErroPerfil("");
-    if (u && u.emailVerified) {
+    setSuperadmin(false);
+    if (u && u.emailVerified && !idMunicipio()) {
+      // fora de qualquer município (/superadmin): só confere se a conta é de SUPERADMIN (cadastrada no console)
+      try { setSuperadmin((await getDoc(doc(db, "superadmins", (u.email ?? "").toLowerCase()))).exists()); } catch { /* não é */ }
+      setPerfil(null);
+    } else if (u && u.emailVerified) {
       try { setPerfil(await carregarPerfil(u)); }
       catch { setPerfil(null); setErroPerfil("Não foi possível carregar seu perfil. Tente novamente."); }
     } else {
@@ -82,5 +91,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const sair = useCallback(async () => { await signOut(auth); }, []);
 
-  return <AuthCtx.Provider value={{ user, perfil, carregando, erroPerfil, recarregar, sair }}>{children}</AuthCtx.Provider>;
+  return <AuthCtx.Provider value={{ user, perfil, superadmin, carregando, erroPerfil, recarregar, sair }}>{children}</AuthCtx.Provider>;
 }

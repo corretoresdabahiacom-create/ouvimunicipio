@@ -126,3 +126,6 @@ export const AVISO_HORAS = 24;
 export const APAGAR_APOS_DIAS = 30; // conversa é apagada 30 dias depois de concluída
 export const MAX_MENSAGENS = 50;
 export const VERSAO_TERMOS = "2026-10";
+
+export type PlanoMunicipio = "basico" | "padrao" | "completo";
+export const PLANOS: Record<PlanoMunicipio, string> = { basico: "Básico", padrao: "Padrão", completo: "Completo" };

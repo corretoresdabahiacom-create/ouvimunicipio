@@ -14,10 +14,10 @@ const EMAIL_OK = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/;
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const { request, env } = context;
   try {
-    const adm = await exigirAdmin(request, env.FIREBASE_PROJECT_ID);
+    const b: any = await request.json().catch(() => ({}));
+    const adm = await exigirAdmin(request, env.FIREBASE_PROJECT_ID, b.municipio);
     if (adm instanceof Response) return adm;
 
-    const b: any = await request.json().catch(() => ({}));
     const assunto = String(b.assunto ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, 150);
     const texto = String(b.texto ?? "").trim().slice(0, 2000);
     const destinos: string[] = Array.isArray(b.emails)

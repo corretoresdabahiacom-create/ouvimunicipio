@@ -4,6 +4,7 @@
 // lote do envio (ver firestore.rules, "limite de envios"), então não dá para burlar pelo navegador.
 import { doc, getDoc, serverTimestamp, type WriteBatch } from "firebase/firestore";
 import { db } from "./firebase";
+import { docM } from "./municipio";
 
 export const LIMITE_ENVIOS_DIA = 20;
 const JANELA_MS = 86_400_000;
@@ -14,7 +15,7 @@ export class LimiteEnvios extends Error {
 
 /** `ref` identifica o envio: "<protocolo>" (manifestação nova) ou "<protocolo>/<mNN>" (complemento). */
 export async function registrarEnvio(lote: WriteBatch, uid: string, ref: string): Promise<void> {
-  const alvo = doc(db, "users", uid);
+  const alvo = docM("users", uid);
   const d = (await getDoc(alvo)).data() ?? {};
   const inicio: number | undefined = d.janelaEm?.toMillis?.();
   const dentro = inicio !== undefined && Date.now() - inicio < JANELA_MS;

@@ -4,6 +4,7 @@ import {
 } from "firebase/firestore";
 import { ArrowLeft, Paperclip, Send, Star, X } from "lucide-react";
 import { db } from "../lib/firebase";
+import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
@@ -29,8 +30,8 @@ export function conversaVencida(p: Protocolo): boolean {
 export async function apagarConversa(p: Protocolo): Promise<void> {
   if (!conversaVencida(p) || p.apagada) return;
   const [m, md] = await Promise.all([
-    getDocs(collection(db, "protocolos", p.id, "mensagens")),
-    getDocs(collection(db, "protocolos", p.id, "midias")),
+    getDocs(colM("protocolos", p.id, "mensagens")),
+    getDocs(colM("protocolos", p.id, "midias")),
   ]);
   const refs = [...m.docs, ...md.docs].map((d) => d.ref);
   for (let i = 0; i < refs.length; i += 400) {
@@ -38,7 +39,7 @@ export async function apagarConversa(p: Protocolo): Promise<void> {
     refs.slice(i, i + 400).forEach((r) => lote.delete(r));
     await lote.commit();
   }
-  await updateDoc(doc(db, "protocolos", p.id), { apagada: true });
+  await updateDoc(docM("protocolos", p.id), { apagada: true });
 }
 
 /** Limpeza silenciosa de até 3 conversas vencidas por abertura de lista. */
@@ -125,7 +126,7 @@ export function gravarMidias(lote: WriteBatch, numero: string, preparados: Prepa
   for (const p of preparados) {
     p.partes.forEach((data, idx) => {
       const k = `${p.meta.k}_${idx}`;
-      lote.set(doc(db, "protocolos", numero, "midias", k), { k, mime: p.meta.mime, data });
+      lote.set(docM("protocolos", numero, "midias", k), { k, mime: p.meta.mime, data });
     });
   }
 }
@@ -141,7 +142,7 @@ function Midias({ numero, anexos }: { numero: string; anexos: AnexoMeta[] }) {
       try {
         const out: { k: string; nome: string; tipo: string; url: string }[] = [];
         for (const m of anexos) {
-          const docs = await Promise.all(Array.from({ length: m.partes }, (_, i) => getDoc(doc(db, "protocolos", numero, "midias", `${m.k}_${i}`))));
+          const docs = await Promise.all(Array.from({ length: m.partes }, (_, i) => getDoc(docM("protocolos", numero, "midias", `${m.k}_${i}`))));
           if (docs.some((d) => !d.exists())) continue;
           const url = URL.createObjectURL(juntarPartes(docs.map((d) => d.get("data") as string), m.mime));
           urls.push(url); out.push({ k: m.k, nome: m.nome, tipo: m.tipo, url });
@@ -172,7 +173,7 @@ export function useMensagens(p: Protocolo) {
   const ativa = !(p.apagada || conversaVencida(p));
   useEffect(() => {
     if (!ativa) { setMsgs([]); return; }
-    return onSnapshot(collection(db, "protocolos", p.id, "mensagens"),
+    return onSnapshot(colM("protocolos", p.id, "mensagens"),
       (s) => setMsgs(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Mensagem).sort((a, b) => a.id.localeCompare(b.id))),
       (e) => { setErro(mensagemDeErro(e)); setMsgs([]); });
   }, [p.id, ativa]);
@@ -212,22 +213,22 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
       const idx = String(proximo).padStart(2, "0");
       const preparados = await prepararAnexos(anexos.arquivos, idx);
       const lote = writeBatch(db);
-      lote.set(doc(db, "protocolos", p.id, "mensagens", `m${idx}`), {
+      lote.set(docM("protocolos", p.id, "mensagens", `m${idx}`), {
         de: eu, autorUid: perfil.uid, texto: texto.trim(), anexos: preparados.map((x) => x.meta), criadoEm: serverTimestamp(),
       });
       gravarMidias(lote, p.id, preparados);
       if (eu === "servidor") {
-        lote.update(doc(db, "protocolos", p.id), {
+        lote.update(docM("protocolos", p.id), {
           status: "respondido", ultimaMsgPor: "servidor", ...(p.status === "aberto" ? { respondidoEm: serverTimestamp() } : {}),
         });
-        lote.set(doc(collection(db, "notificacoes")), {
+        lote.set(doc(colM("notificacoes")), {
           uid: p.autorUid, protocoloId: p.id, tipo: "resposta",
           mensagem: `Há uma nova resposta da secretaria no protocolo ${p.numero}. Atenção: este aviso será apagado em 24 horas. A conversa continua disponível no protocolo.`,
           criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 24 * 3600_000),
         });
       } else {
         await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
-        lote.update(doc(db, "protocolos", p.id), { ultimaMsgPor: "cidadao" });
+        lote.update(docM("protocolos", p.id), { ultimaMsgPor: "cidadao" });
       }
       await lote.commit();
       setTexto(""); anexos.limpar();
@@ -270,7 +271,7 @@ function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
   const [nota, setNota] = useState(0);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
-  const ref = doc(db, "protocolos", p.id);
+  const ref = docM("protocolos", p.id);
 
   async function concluir() {
     setErro(""); setOcupado(true);
@@ -331,8 +332,8 @@ function Prorrogacao({ p }: { p: Protocolo }) {
     setErro(""); setOcupado(true);
     try {
       const lote = writeBatch(db);
-      lote.update(doc(db, "protocolos", p.id), { prorrogadoEm: serverTimestamp(), prorrogacaoMotivo: m, prorrogacaoPor: perfil.nome });
-      lote.set(doc(collection(db, "notificacoes")), {
+      lote.update(docM("protocolos", p.id), { prorrogadoEm: serverTimestamp(), prorrogacaoMotivo: m, prorrogacaoPor: perfil.nome });
+      lote.set(doc(colM("notificacoes")), {
         uid: p.autorUid, protocoloId: p.id, tipo: "prorrogacao",
         mensagem: `O prazo do protocolo ${p.numero} foi prorrogado por ${PRAZO_PRORROGACAO_DIAS} dias. Motivo informado pela secretaria: ${m}`,
         criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
@@ -366,7 +367,7 @@ export function useHistorico(p: Protocolo) {
   const n = p.encaminhamentos ?? 0;
   useEffect(() => {
     if (!n) { setLista([]); return; }
-    return onSnapshot(collection(db, "protocolos", p.id, "historico"),
+    return onSnapshot(colM("protocolos", p.id, "historico"),
       (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Encaminhamento).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))),
       () => setLista([]));
   }, [p.id, n]);

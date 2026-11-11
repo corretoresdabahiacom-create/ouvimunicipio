@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { deleteField, deleteDoc, doc, getDocs, collection, query, updateDoc, where } from "firebase/firestore";
 import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
 import { auth, db } from "../lib/firebase";
+import { colM, docM } from "../lib/municipio";
 import { LinkLegal } from "./Legal";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
@@ -23,7 +24,7 @@ export function Perfil() {
     if (t && !/^[0-9]{10,13}$/.test(t)) return setErro("Telefone inválido. Use DDD + número, ou deixe em branco.");
     setOcupado(true);
     try {
-      await updateDoc(doc(db, "users", perfil!.uid), { nome: nome.trim().slice(0, 120), email: perfil!.email, telefone: t ? t : deleteField() });
+      await updateDoc(docM("users", perfil!.uid), { nome: nome.trim().slice(0, 120), email: perfil!.email, telefone: t ? t : deleteField() });
       await recarregar();
       setMsg("Dados atualizados.");
     } catch (err) { setErro(mensagemDeErro(err)); }
@@ -70,9 +71,9 @@ function ExcluirConta() {
     setOcupado(true);
     try {
       await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, senha));
-      const ns = await getDocs(query(collection(db, "notificacoes"), where("uid", "==", user.uid)));
+      const ns = await getDocs(query(colM("notificacoes"), where("uid", "==", user.uid)));
       await Promise.all(ns.docs.map((d) => deleteDoc(d.ref)));
-      await updateDoc(doc(db, "users", user.uid), { situacao: "excluido", nome: "(removido)", email: "", telefone: deleteField() });
+      await updateDoc(docM("users", user.uid), { situacao: "excluido", nome: "(removido)", email: "", telefone: deleteField() });
       await deleteUser(user);
     } catch (err) { setErro(mensagemDeErro(err)); setOcupado(false); }
   }

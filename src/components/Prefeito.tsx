@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { docM } from "../lib/municipio";
 import { mensagemDeErro } from "../lib/erros";
 import { TIPOS, type Estatisticas } from "../lib/types";
 import { Aviso, Cartao, Carregando, dataBR } from "./ui";
@@ -36,7 +37,7 @@ function Barras({ titulo, itens }: { titulo: string; itens: [string, number][] }
 export function PainelPrefeito() {
   const [e, setE] = useState<Estatisticas | null | undefined>(undefined);
   const [erro, setErro] = useState("");
-  useEffect(() => onSnapshot(doc(db, "estatisticas", "atual"),
+  useEffect(() => onSnapshot(docM("estatisticas", "atual"),
     (s) => setE(s.exists() ? (s.data() as Estatisticas) : null),
     (err) => { setErro(mensagemDeErro(err)); setE(null); }), []);
 
