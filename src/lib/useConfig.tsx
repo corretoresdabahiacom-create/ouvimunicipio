@@ -48,12 +48,15 @@ export function SiteProvider({ children }: { children: ReactNode }) {
   const [cfg, setCfg] = useState<SiteConfig>(lerCache);
 
   useEffect(() => { aplicar(cfg); }, [cfg]);
-  useEffect(() => onSnapshot(docM("config", "site"), (s) => {
+  useEffect(() => {
+    if (!idMunicipio()) return; // fora de um município (ex.: /superadmin) não há marca para carregar
+    return onSnapshot(docM("config", "site"), (s) => {
     // sem conexão o Firestore devolve "inexistente" do cache local: nesse caso mantém a marca já conhecida
     if (s.metadata.fromCache && !s.exists()) return;
     const d = s.exists() ? { ...PADRAO, nome: s.get("nome") ?? PADRAO.nome, cor: s.get("cor") ?? PADRAO.cor, logo: s.get("logo") ?? "", contato: s.get("contato") ?? "" } : PADRAO;
     gravarCache(d); setCfg(d);
-  }, () => undefined), []);
+    }, () => undefined);
+  }, []);
 
   return <Ctx.Provider value={cfg}>{children}</Ctx.Provider>;
 }
@@ -61,6 +64,8 @@ export function SiteProvider({ children }: { children: ReactNode }) {
 export function useAnuncios(): Anuncio[] {
   const [lista, setLista] = useState<Anuncio[]>([]);
   useEffect(() => {
+    // fora de um município (ex.: /superadmin) não há anúncios: sem isso a tela de login quebrava
+    if (!idMunicipio()) return;
     getDocs(query(colM("anuncios"), where("ativo", "==", true)))
       .then((s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Anuncio).sort((a, b) => a.ordem - b.ordem)))
       .catch(() => setLista([]));

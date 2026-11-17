@@ -100,7 +100,7 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
           <span className="text-xs text-slate-600">{mensagem.length}/5000</span>
         </label>
         <SeletorAnexos a={anexos} />
-        <p className="text-xs text-slate-600">Sua mensagem só pode ser lida por você e pela secretaria escolhida.</p>
+        <p className="text-xs text-slate-600">Sua mensagem só pode ser lida por você, pela secretaria escolhida e pela Ouvidoria geral do município (que pode encaminhá-la ao setor certo).</p>
         {erro && <Aviso>{erro}</Aviso>}
         <Botao type="submit" carregando={ocupado} className="w-full"><Send className="size-4" aria-hidden /> Enviar mensagem</Botao>
       </form>

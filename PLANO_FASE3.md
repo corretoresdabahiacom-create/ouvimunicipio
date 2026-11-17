@@ -1,4 +1,4 @@
-# Fase 3 — SaaS multi-município (IMPLEMENTADO, aguardando testes)
+# Fase 3 — SaaS multi-município (IMPLEMENTADO; regras testadas no CI em 16/11/2026)
 
 Decisões do dono: **um único projeto Firebase** (plano gratuito) e **SUPERADMIN só por e-mail cadastrado**.
 

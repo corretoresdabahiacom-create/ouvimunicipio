@@ -45,7 +45,7 @@ export type TipoManifestacao = keyof typeof TIPOS;
 export type StatusProtocolo = "aberto" | "respondido" | "concluido";
 
 // O documento do protocolo guarda só metadados (o administrador pode lê-lo para estatísticas).
-// Os textos e anexos ficam em protocolos/{numero}/mensagens, visíveis só ao autor e à secretaria.
+// Os textos e anexos ficam em protocolos/{numero}/mensagens, visíveis só ao autor, à secretaria e ao ouvidor geral.
 export interface Protocolo {
   id: string;
   numero: string;
@@ -125,7 +125,7 @@ export const PRAZO_PRORROGACAO_DIAS = 30; // prorrogação única, com justifica
 export const AVISO_HORAS = 24;
 export const APAGAR_APOS_DIAS = 30; // conversa é apagada 30 dias depois de concluída
 export const MAX_MENSAGENS = 50;
-export const VERSAO_TERMOS = "2026-10";
+export const VERSAO_TERMOS = "2026-11"; // mudou: ouvidor geral lê as conversas; prefeito vê só números
 
 export type PlanoMunicipio = "basico" | "padrao" | "completo";
 export const PLANOS: Record<PlanoMunicipio, string> = { basico: "Básico", padrao: "Padrão", completo: "Completo" };

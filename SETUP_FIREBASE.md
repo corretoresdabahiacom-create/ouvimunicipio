@@ -1,74 +1,59 @@
 # Configuração (plano gratuito do Firebase + Cloudflare Pages)
 
-Projeto Firebase: `ouvimunicipio-f2bf7`. Não usa Cloud Functions nem Storage (ambos exigem plano pago).
+Projeto Firebase: `ouvimunicipio-f2bf7` (banco `(default)`). Não usa Cloud Functions nem Storage (ambos exigem plano pago).
+Tudo de um município fica em `municipios/{municipio}/…` no Firestore; o endereço do app é `/{municipio}`.
 
 ## 1. Console Firebase
-1. **Authentication → Método de login:** ative **E-mail/senha**. Em *Configurações → Domínios autorizados* inclua o domínio do app (`*.pages.dev` ou o seu).
-2. **Firestore Database:** criado em `southamerica-east1`.
-3. **Firestore → Regras:** cole o conteúdo de `firestore.rules` e publique (sempre que o arquivo mudar).
-4. *(TTL do Firestore exige faturamento ativo e NÃO é usado.)* Os avisos vencidos somem da tela após 24 h e o próprio app os apaga
-   do banco na próxima vez que o cidadão abrir o aplicativo.
-5. **App Check (recomendado):** registre o app Web com reCAPTCHA v3 (gratuito), copie a *chave do site* para a variável
-   `VITE_RECAPTCHA_SITE_KEY` na Cloudflare e só então ative a imposição para o Firestore.
+1. **Authentication → Método de login:** ative **E-mail/senha**. Em *Configurações → Domínios autorizados* inclua o domínio do app (`ouvimunicipio.pages.dev` ou o seu).
+2. **Firestore Database:** `southamerica-east1`.
+3. **Firestore → Regras:** cole o conteúdo de `firestore.rules` e publique. Só publique depois que a verificação do GitHub
+   ("Testar as regras do Firestore") estiver verde.
+4. **App Check:** reCAPTCHA Enterprise. A chave do site fica em `firebase-applet-config.json` (`recaptchaSiteKey`); a imposição
+   está ativa no Cloud Firestore.
+5. *(TTL do Firestore exige faturamento e NÃO é usado.)* O próprio app apaga avisos vencidos e conversas 30 dias após a conclusão.
 
-## 2. Primeiro administrador (uma vez, manualmente)
-1. Abra o app, crie sua conta e **confirme o e-mail**.
-2. No Firestore, crie a coleção `equipe` e o documento com ID = **seu e-mail em minúsculas**, com os campos:
-   `nome` (texto), `papel` = `admin` (texto), `ativo` = `true` (booleano).
-3. Saia e entre de novo: o painel **Admin** aparece.
+## 2. SUPERADMIN (uma vez, manualmente)
+1. Em **Firestore → Dados**, crie a coleção `superadmins` com um documento cujo ID é **o seu e-mail em minúsculas**
+   (um campo qualquer, por exemplo `ativo = true`). Ninguém consegue se tornar superadmin pelo app.
+2. Abra `https://ouvimunicipio.pages.dev/superadmin`, entre com esse e-mail (ou crie a conta e confirme o e-mail).
+3. Crie o município (endereço só com letras minúsculas, números e hífen) e cadastre o administrador dele
+   (use **outro e-mail**: o superadmin não pode se cadastrar como administrador).
 
-## 3. Como o servidor entra
-No painel Admin → *Servidores*, cadastre o e-mail, a função (secretário ou assessor) e a secretaria.
-A pessoa cria a conta no app com **esse mesmo e-mail** e confirma o e-mail. Remover ou desativar o cadastro tira o acesso na hora.
+## 3. Administrador e equipe do município
+O administrador abre `/{municipio}`, cria a conta com o e-mail cadastrado e confirma. Em **Admin** ele cria as secretarias,
+a aparência (nome, logo, cor, contato do encarregado LGPD), os anúncios e a equipe:
+secretário/assessor (com secretaria), ouvidor geral e prefeito. Cada pessoa cria a conta em `/{municipio}` com o mesmo e-mail.
+Remover ou desativar o cadastro tira o acesso na hora.
 
 ## 4. Cloudflare Pages
 - **Build command:** `npm run build` · **Output directory:** `dist`
+- `FIREBASE_PROJECT_ID` já vem do `wrangler.jsonc`.
 - Variáveis (Settings → Variables and Secrets):
-  - `FIREBASE_PROJECT_ID` = `ouvimunicipio-f2bf7`
-  - `AUDIT_EMAIL` = e-mail que recebe o registro das ações do admin
-  - `RESEND_API_KEY` = chave gratuita de resend.com (marcar como *Secret*)
-  - `NOME_ORGAO` (opcional) = nome que aparece no rodapé dos e-mails enviados aos usuários
-  - `RESEND_FROM` (opcional) = remetente de domínio verificado; sem isso o Resend só entrega ao e-mail dono da conta
-  - `VITE_RECAPTCHA_SITE_KEY` (opcional) = chave do site do reCAPTCHA v3
+  - `RESEND_API_KEY` (*Secret*) = chave do resend.com
+  - `AUDIT_EMAIL` = e-mail que recebe o registro das ações dos administradores (de todos os municípios)
+  - `RESEND_FROM` (opcional) = remetente de domínio verificado; sem isso o Resend só entrega ao dono da conta
+  - `NOME_ORGAO` (opcional) = nome no rodapé dos e-mails enviados aos usuários
+  - `VITE_MUNICIPIO_PADRAO` (opcional, de *build*) = município aberto quando o endereço é só `/`
 
 ## Limites de mídia (guardada no próprio Firestore)
-- Fotos: reduzidas automaticamente no celular (~700 KB cada).
-- Vídeos: até 7 MB (clipes curtos). Soma dos anexos: 7 MB. Máximo de 5 anexos por mensagem.
+- Fotos reduzidas automaticamente (~700 KB cada). Vídeos até 7 MB (clipes curtos). Soma por mensagem: 7 MB. Máx. 5 anexos.
+- Cada conta pode fazer até 20 envios (manifestação nova ou complemento) a cada 24 h.
 
 ## Segurança em resumo
-- Mensagens e anexos só são lidos pelo autor e pelos servidores da secretaria escolhida. O admin **não** lê mensagens.
-- Papéis vêm da coleção `equipe` (só o admin escreve); e-mail confirmado é obrigatório para tudo.
-- Prazo de 30 dias (`criadoEm` + 30) e horário de resposta são gravados pelo servidor; respostas são imutáveis.
-- Avisos de resposta expiram em 24 h (somem da tela e são apagados do banco quando o cidadão abre o app).
+- Conversas e anexos: lidos pelo autor, pela secretaria responsável e pelo ouvidor geral do mesmo município.
+  Administrador, prefeito e superadmin **não** leem conversas.
+- Papéis vêm de `municipios/{municipio}/equipe` (só o admin do município escreve; o superadmin só cria administradores).
+- Nada de um município é lido ou gravado por pessoas de outro (coberto por testes automáticos).
+- Prazo legal de 30 dias com prorrogação única (+30, justificativa obrigatória, cidadão avisado).
 - Cabeçalhos de segurança e CSP em `public/_headers`.
 
 ## Painel do administrador
-- **Secretarias / Servidores:** cadastro, edição e exclusão (ver acima).
-- **Usuários:** total de cadastrados, lista com nome, e-mail e telefone (opcional), busca e filtros (situação, com telefone).
-  O admin pode **bloquear/desbloquear** (reversível) e **excluir** (apaga nome, e-mail e telefone e bloqueia para sempre).
-  Sem Cloud Functions não é possível apagar o *login* da pessoa pelo app: para liberar um e-mail para novo cadastro,
-  remova-o também em Firebase → Authentication → Usuários.
-- **Aparência:** nome do município, logomarca (reduzida automaticamente) e cor principal do layout (o app exige contraste mínimo 4,5 com texto branco).
-  Vale na hora para todos, inclusive na tela de login.
-- **Publicidade:** até 10 anúncios no carrossel da tela inicial (imagem 3:1, título e link https opcional), com ordem, ativar/desativar e exclusão.
-  O carrossel aparece na tela de login e para os cidadãos.
+- **Usuários:** lista com nome, e-mail e telefone; bloquear/desbloquear e excluir (apaga os dados pessoais).
+  Sem Cloud Functions o app não apaga o *login*: para liberar um e-mail, remova-o em Authentication → Usuários.
+- **Mensagens:** aviso no app (2 a 30 dias) e/ou e-mail (até 500 pessoas por envio, em blocos de 100).
+- **Aparência:** nome, logomarca e cor (contraste mínimo 4,5 com texto branco). **Publicidade:** até 10 anúncios no carrossel.
+- **Relatórios:** indicadores e CSV.
 
-> Depois de atualizar o código, **republique o `firestore.rules`** no console do Firebase.
-
-## Observação sobre o nome no ícone instalado
-O nome e o ícone do app **instalado** (manifest) são fixos ("Ouvidoria"); a marca e as cores mudam dentro do app.
-
-## Mensagens do Admin aos usuários
-Em **Admin → Usuários**: filtre, marque as pessoas (ou deixe nenhuma marcada para usar todo o filtro) e clique em *Enviar mensagem*.
-- **Aviso no aplicativo**: aparece na aba Avisos por 2–30 dias e some sozinho (não precisa de nada além das regras novas).
-- **E-mail**: usa `/api/mensagem` (Cloudflare) com `RESEND_API_KEY` e, para entregar a qualquer pessoa, `RESEND_FROM` de um domínio verificado no Resend. Até 500 pessoas por envio.
-- **Republique o `firestore.rules`** (há uma regra nova para avisos).
-
-## Conversa, sigilo e LGPD (nova estrutura)
-- `protocolos/{número}` guarda só **metadados** (tipo, secretaria, status, datas, nota). O administrador pode ler isso (indicadores/CSV), mas **não** o texto.
-- `protocolos/{número}/mensagens/m00…m49` e `…/midias` guardam a conversa: só o autor e a secretaria destinatária leem.
-- Depois que o atendimento é **concluído**, a conversa e os anexos são apagados 30 dias depois (o app faz a limpeza quando alguém abre a lista; as regras já bloqueiam apagar antes do prazo).
-- Protocolos de testes antigos (formato anterior, com texto no próprio documento) continuam aparecendo, mas o admin consegue lê-los. Apague-os no console (Firestore → protocolos) antes de usar de verdade.
-- Termos de Uso e Política de Privacidade: textos-modelo em `src/components/Legal.tsx` (revise com a assessoria jurídica). Aviso de aceite versionado em `VERSAO_TERMOS` (`src/lib/types.ts`); mudar a versão pede novo aceite de todos.
-- Cada pessoa pode excluir a própria conta em **Perfil → Excluir minha conta**.
-- **Republique o `firestore.rules`** (mudou bastante) e depois teste o fluxo completo.
+## Termos e LGPD
+Textos-modelo em `src/components/Legal.tsx` (revise com a assessoria jurídica). Versão em `VERSAO_TERMOS`
+(`src/lib/types.ts`); mudar a versão pede novo aceite de todos.

@@ -10,8 +10,12 @@ const SLUG = /^[a-z0-9-]{2,40}$/;
 
 let atual = "";
 export const idMunicipio = () => atual;
-export const colM = (...seg: string[]) => collection(db, "municipios", atual, ...seg);
-export const docM = (...seg: string[]) => doc(db, "municipios", atual, ...seg);
+function exigir(): string {
+  if (!atual) throw new Error("Nenhum município selecionado.");
+  return atual;
+}
+export const colM = (...seg: string[]) => collection(db, "municipios", exigir(), ...seg);
+export const docM = (...seg: string[]) => doc(db, "municipios", exigir(), ...seg);
 
 export type Rota = { tipo: "super" } | { tipo: "municipio"; slug: string } | { tipo: "raiz" };
 export function rotaAtual(path = location.pathname): Rota {

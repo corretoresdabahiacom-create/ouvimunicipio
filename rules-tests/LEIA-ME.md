@@ -1,6 +1,7 @@
 # Testes das regras de segurança (Firestore)
 
-Os testes simulam cidadão, secretário, administrador e visitante tentando ler e gravar no banco,
+Os testes (135) simulam cidadão, secretário, ouvidor, prefeito, administrador, superadmin e visitante,
+em dois municípios, tentando ler e gravar no banco,
 e conferem se as regras (`firestore.rules`) liberam ou negam. Rodam num emulador local:
 **nunca tocam no banco real**.
 
@@ -17,4 +18,4 @@ Precisa de Node 22 e Java 21.
 
 ## Regra de ouro
 Toda mudança em `firestore.rules` só vai para o console do Firebase depois que **todos** os testes passarem.
-Os itens `todo` no fim do arquivo são funcionalidades das Fases 2 e 3 que ainda não existem.
+O item `todo` no fim do arquivo (LAI) é uma funcionalidade que ainda não existe.
