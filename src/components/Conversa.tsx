@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, serverTimestamp, Timestamp, updateDoc, writeBatch, type WriteBatch,
+  collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type WriteBatch,
 } from "firebase/firestore";
-import { ArrowLeft, Paperclip, Send, Star, X } from "lucide-react";
+import { ArrowLeft, MapPin, Paperclip, Send, Star, X } from "lucide-react";
 import { db } from "../lib/firebase";
+import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
+import { registrarEnvio } from "../lib/limite";
+import { sincronizarFicha } from "../lib/consulta";
 import {
   MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, juntarPartes, tipoDe,
 } from "../lib/media";
-import { APAGAR_APOS_DIAS, MAX_MENSAGENS, TIPOS, type AnexoMeta, type Mensagem, type Protocolo } from "../lib/types";
-import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, diasRestantes, prazoFinal } from "./ui";
+import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
+import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
 
 const DIA = 86_400_000;
 
@@ -28,8 +31,8 @@ export function conversaVencida(p: Protocolo): boolean {
 export async function apagarConversa(p: Protocolo): Promise<void> {
   if (!conversaVencida(p) || p.apagada) return;
   const [m, md] = await Promise.all([
-    getDocs(collection(db, "protocolos", p.id, "mensagens")),
-    getDocs(collection(db, "protocolos", p.id, "midias")),
+    getDocs(colM("protocolos", p.id, "mensagens")),
+    getDocs(colM("protocolos", p.id, "midias")),
   ]);
   const refs = [...m.docs, ...md.docs].map((d) => d.ref);
   for (let i = 0; i < refs.length; i += 400) {
@@ -37,7 +40,7 @@ export async function apagarConversa(p: Protocolo): Promise<void> {
     refs.slice(i, i + 400).forEach((r) => lote.delete(r));
     await lote.commit();
   }
-  await updateDoc(doc(db, "protocolos", p.id), { apagada: true });
+  await updateDoc(docM("protocolos", p.id), { apagada: true });
 }
 
 /** Limpeza silenciosa de até 3 conversas vencidas por abertura de lista. */
@@ -124,7 +127,7 @@ export function gravarMidias(lote: WriteBatch, numero: string, preparados: Prepa
   for (const p of preparados) {
     p.partes.forEach((data, idx) => {
       const k = `${p.meta.k}_${idx}`;
-      lote.set(doc(db, "protocolos", numero, "midias", k), { k, mime: p.meta.mime, data });
+      lote.set(docM("protocolos", numero, "midias", k), { k, mime: p.meta.mime, data });
     });
   }
 }
@@ -140,7 +143,7 @@ function Midias({ numero, anexos }: { numero: string; anexos: AnexoMeta[] }) {
       try {
         const out: { k: string; nome: string; tipo: string; url: string }[] = [];
         for (const m of anexos) {
-          const docs = await Promise.all(Array.from({ length: m.partes }, (_, i) => getDoc(doc(db, "protocolos", numero, "midias", `${m.k}_${i}`))));
+          const docs = await Promise.all(Array.from({ length: m.partes }, (_, i) => getDoc(docM("protocolos", numero, "midias", `${m.k}_${i}`))));
           if (docs.some((d) => !d.exists())) continue;
           const url = URL.createObjectURL(juntarPartes(docs.map((d) => d.get("data") as string), m.mime));
           urls.push(url); out.push({ k: m.k, nome: m.nome, tipo: m.tipo, url });
@@ -171,14 +174,14 @@ export function useMensagens(p: Protocolo) {
   const ativa = !(p.apagada || conversaVencida(p));
   useEffect(() => {
     if (!ativa) { setMsgs([]); return; }
-    return onSnapshot(collection(db, "protocolos", p.id, "mensagens"),
+    return onSnapshot(colM("protocolos", p.id, "mensagens"),
       (s) => setMsgs(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Mensagem).sort((a, b) => a.id.localeCompare(b.id))),
       (e) => { setErro(mensagemDeErro(e)); setMsgs([]); });
   }, [p.id, ativa]);
   return { msgs, erro, ativa };
 }
 
-function Balao({ m, numero, eu }: { m: Mensagem; numero: string; eu: "cidadao" | "servidor" }) {
+function Balao({ m, numero, eu }: { m: Mensagem; numero: string; eu: "cidadao" | "servidor" | "ouvidor" }) {
   const minha = m.de === eu;
   const quem = m.de === "servidor" ? "Secretaria" : (eu === "cidadao" ? "Você" : "Cidadão");
   return (
@@ -187,11 +190,31 @@ function Balao({ m, numero, eu }: { m: Mensagem; numero: string; eu: "cidadao" |
         <p className="text-xs font-semibold">{quem} · <span className="font-normal">{dataBR(m.criadoEm)}</span></p>
         {m.assunto && <p className="mt-1 font-semibold">{m.assunto}</p>}
         <p className="mt-1 whitespace-pre-wrap">{m.texto}</p>
+        {m.local && (
+          <a className="mt-2 inline-flex items-center gap-1 text-sm font-medium underline" target="_blank" rel="noreferrer"
+            href={`https://www.openstreetmap.org/?mlat=${m.local.lat}&mlon=${m.local.lng}#map=18/${m.local.lat}/${m.local.lng}`}>
+            <MapPin className="size-4" aria-hidden /> Ver o local informado no mapa
+          </a>
+        )}
         {m.anexos?.length > 0 && <Midias numero={numero} anexos={m.anexos} />}
       </div>
     </li>
   );
 }
+
+// Respostas-modelo da secretaria (só servidores da própria secretaria leem)
+function useModelos(secretariaId: string | undefined, ativo: boolean) {
+  const [lista, setLista] = useState<Modelo[]>([]);
+  useEffect(() => {
+    if (!ativo || !secretariaId) return;
+    return onSnapshot(query(colM("modelos"), where("secretariaId", "==", secretariaId)),
+      (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Modelo).sort((a, b) => a.titulo.localeCompare(b.titulo))),
+      () => setLista([]));
+  }, [secretariaId, ativo]);
+  return lista;
+}
+export const aplicarModelo = (texto: string, p: Protocolo) =>
+  texto.replaceAll("{numero}", p.numero).replaceAll("{secretaria}", p.secretariaNome);
 
 // ---------- compositor (resposta / complemento) ----------
 function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "cidadao" | "servidor" }) {
@@ -200,6 +223,7 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const anexos = useAnexos();
+  const modelos = useModelos(perfil?.secretariaId, eu === "servidor");
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
@@ -211,23 +235,25 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
       const idx = String(proximo).padStart(2, "0");
       const preparados = await prepararAnexos(anexos.arquivos, idx);
       const lote = writeBatch(db);
-      lote.set(doc(db, "protocolos", p.id, "mensagens", `m${idx}`), {
+      lote.set(docM("protocolos", p.id, "mensagens", `m${idx}`), {
         de: eu, autorUid: perfil.uid, texto: texto.trim(), anexos: preparados.map((x) => x.meta), criadoEm: serverTimestamp(),
       });
       gravarMidias(lote, p.id, preparados);
       if (eu === "servidor") {
-        lote.update(doc(db, "protocolos", p.id), {
+        lote.update(docM("protocolos", p.id), {
           status: "respondido", ultimaMsgPor: "servidor", ...(p.status === "aberto" ? { respondidoEm: serverTimestamp() } : {}),
         });
-        lote.set(doc(collection(db, "notificacoes")), {
+        lote.set(doc(colM("notificacoes")), {
           uid: p.autorUid, protocoloId: p.id, tipo: "resposta",
           mensagem: `Há uma nova resposta da secretaria no protocolo ${p.numero}. Atenção: este aviso será apagado em 24 horas. A conversa continua disponível no protocolo.`,
           criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 24 * 3600_000),
         });
       } else {
-        lote.update(doc(db, "protocolos", p.id), { ultimaMsgPor: "cidadao" });
+        await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
+        lote.update(docM("protocolos", p.id), { ultimaMsgPor: "cidadao" });
       }
       await lote.commit();
+      if (eu === "servidor") void sincronizarFicha(p.id);
       setTexto(""); anexos.limpar();
     } catch (err) { setErro(mensagemDeErro(err)); }
     finally { setOcupado(false); }
@@ -237,6 +263,13 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
     <Cartao>
       <form onSubmit={enviar} className="space-y-3">
         <label className="block">
+          {eu === "servidor" && modelos.length > 0 && (
+            <select aria-label="Usar uma resposta-modelo" value="" className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              onChange={(e) => { const m = modelos.find((x) => x.id === e.target.value); if (m) setTexto((t) => (t.trim() ? `${t.trimEnd()}\n\n` : "") + aplicarModelo(m.texto, p)); }}>
+              <option value="">Inserir resposta-modelo…</option>
+              {modelos.map((m) => <option key={m.id} value={m.id}>{m.titulo}</option>)}
+            </select>
+          )}
           <span className="mb-1 block text-sm font-medium">{eu === "servidor" ? "Sua resposta ao cidadão" : p.status === "aberto" ? "Complementar minha mensagem" : "Responder à secretaria"}</span>
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} maxLength={5000} required
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
@@ -268,12 +301,13 @@ function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
   const [nota, setNota] = useState(0);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
-  const ref = doc(db, "protocolos", p.id);
+  const ref = docM("protocolos", p.id);
 
   async function concluir() {
     setErro(""); setOcupado(true);
     try {
       await updateDoc(ref, { status: "concluido", concluidoEm: serverTimestamp(), ...(eu === "cidadao" && nota ? { avaliacao: nota } : {}) });
+      void sincronizarFicha(p.id);
     } catch (e) { setErro(mensagemDeErro(e)); } finally { setOcupado(false); }
   }
   async function avaliar() {
@@ -313,11 +347,70 @@ function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
   );
 }
 
+// ---------- prorrogação do prazo (Lei 13.460/2017, art. 16: uma única vez, com justificativa) ----------
+function Prorrogacao({ p }: { p: Protocolo }) {
+  const { perfil } = useAuth();
+  const [aberto, setAberto] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [erro, setErro] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+
+  async function prorrogar(e: FormEvent) {
+    e.preventDefault();
+    if (!perfil) return;
+    const m = motivo.trim();
+    if (m.length < 10) return setErro("Explique o motivo (mínimo de 10 caracteres). O cidadão vai ler esta justificativa.");
+    setErro(""); setOcupado(true);
+    try {
+      const lote = writeBatch(db);
+      lote.update(docM("protocolos", p.id), { prorrogadoEm: serverTimestamp(), prorrogacaoMotivo: m, prorrogacaoPor: perfil.nome });
+      lote.set(doc(colM("notificacoes")), {
+        uid: p.autorUid, protocoloId: p.id, tipo: "prorrogacao",
+        mensagem: `O prazo do protocolo ${p.numero} foi prorrogado por ${PRAZO_PRORROGACAO_DIAS} dias. Motivo informado pela secretaria: ${m}`,
+        criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
+      });
+      await lote.commit();
+      void sincronizarFicha(p.id);
+      setAberto(false);
+    } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
+  }
+
+  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>Prorrogar prazo (+{PRAZO_PRORROGACAO_DIAS} dias)</Botao>;
+  return (
+    <form onSubmit={prorrogar} className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+      <p className="text-sm text-amber-950">A lei permite prorrogar <b>uma única vez</b>, por até {PRAZO_PRORROGACAO_DIAS} dias, com justificativa expressa. O cidadão será avisado e verá o motivo. Seu nome fica registrado.</p>
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium">Motivo da prorrogação</span>
+        <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} maxLength={300} required
+          className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
+      </label>
+      {erro && <Aviso>{erro}</Aviso>}
+      <div className="flex gap-2">
+        <Botao type="submit" carregando={ocupado}>Confirmar prorrogação</Botao>
+        <Botao type="button" variante="link" onClick={() => { setAberto(false); setErro(""); }}>Cancelar</Botao>
+      </div>
+    </form>
+  );
+}
+
 // ---------- detalhe do protocolo ----------
-export function ProtocoloDetalhe({ p, voltar, eu }: { p: Protocolo; voltar: () => void; eu: "cidadao" | "servidor" }) {
+export function useHistorico(p: Protocolo) {
+  const [lista, setLista] = useState<Encaminhamento[]>([]);
+  const n = p.encaminhamentos ?? 0;
+  useEffect(() => {
+    if (!n) { setLista([]); return; }
+    return onSnapshot(colM("protocolos", p.id, "historico"),
+      (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Encaminhamento).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))),
+      () => setLista([]));
+  }, [p.id, n]);
+  return lista;
+}
+
+export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar: () => void; eu: "cidadao" | "servidor" | "ouvidor"; topo?: ReactNode }) {
+  const historico = useHistorico(p);
   const { msgs, erro, ativa } = useMensagens(p);
-  const dias = diasRestantes(p);
   const prazo = prazoFinal(p);
+  const rotulo = rotuloPrazo(p);
   const proximo = useMemo(() => (msgs && msgs.length ? Number(msgs[msgs.length - 1].id.slice(1)) + 1 : 0), [msgs]);
   const titulo = msgs?.[0]?.assunto ?? p.assunto ?? TIPOS[p.tipo] ?? "Manifestação";
   const legado = !!p.mensagem && (msgs?.length ?? 0) === 0;
@@ -351,20 +444,39 @@ export function ProtocoloDetalhe({ p, voltar, eu }: { p: Protocolo; voltar: () =
           <div><dt className="inline font-medium">Tipo: </dt><dd className="inline">{TIPOS[p.tipo] ?? "—"}</dd></div>
           <div><dt className="inline font-medium">Secretaria: </dt><dd className="inline">{p.secretariaNome}</dd></div>
           <div><dt className="inline font-medium">Enviado em: </dt><dd className="inline">{dataBR(p.criadoEm)}</dd></div>
-          {p.status === "aberto" && prazo && (
+          {p.status === "aberto" && prazo && rotulo && (
             <div><dt className="inline font-medium">Prazo de resposta: </dt>
-              <dd className="inline">{prazo.toLocaleDateString("pt-BR")} {dias !== null && (dias >= 0 ? `(${dias} dias restantes)` : "(prazo vencido)")}</dd></div>
+              <dd className="inline">{prazo.toLocaleDateString("pt-BR")} · <span className={rotulo.classe}>{rotulo.texto.replace(/^Prazo: /, "")}</span></dd></div>
           )}
         </dl>
+        {p.prorrogadoEm && (
+          <Aviso tipo="info">
+            <b>Prazo prorrogado</b> em {dataBR(p.prorrogadoEm)}{p.prorrogacaoPor ? ` por ${p.prorrogacaoPor}` : ""}, por mais {PRAZO_PRORROGACAO_DIAS} dias (a prorrogação só pode ser feita uma vez).
+            {p.prorrogacaoMotivo && <> Motivo: {p.prorrogacaoMotivo}</>}
+          </Aviso>
+        )}
+        {historico.length > 0 && (
+          <Aviso tipo="info">
+            <b>Encaminhado pela Ouvidoria:</b>
+            <ul className="mt-1 list-disc pl-5">
+              {historico.map((h) => <li key={h.id}>{dataBR(h.criadoEm)} · de {h.deNome} para <b>{h.paraNome}</b>{eu !== "cidadao" && <> (por {h.por}). Motivo: {h.motivo}</>}</li>)}
+            </ul>
+          </Aviso>
+        )}
+        {eu === "servidor" && p.status === "aberto" && p.cobradoEm && (
+          <Aviso>A Ouvidoria cobrou uma resposta a este protocolo em {dataBR(p.cobradoEm)}.</Aviso>
+        )}
+        {eu === "servidor" && p.status === "aberto" && !p.prorrogadoEm && nivelPrazo(p) !== "vencido" && <Prorrogacao p={p} />}
         {erro && <Aviso>{erro}</Aviso>}
         {corpo}
       </Cartao>
-      {aberto && ativa && msgs && (
+      {topo}
+      {eu !== "ouvidor" && aberto && ativa && msgs && (
         proximo >= MAX_MENSAGENS
           ? <Aviso tipo="info">Esta conversa atingiu o limite de {MAX_MENSAGENS} mensagens.</Aviso>
           : <Compositor p={p} proximo={proximo} eu={eu} />
       )}
-      <Encerramento p={p} eu={eu} />
+      {eu !== "ouvidor" && <Encerramento p={p} eu={eu} />}
       {/* apagar manualmente não existe: a limpeza é automática */}
     </div>
   );

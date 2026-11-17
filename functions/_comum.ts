@@ -30,21 +30,25 @@ export async function verificarToken(idToken: string, projectId: string): Promis
 }
 
 
-// Exige "Authorization: Bearer <ID token>" de um ADMIN ativo com e-mail confirmado.
+// Exige "Authorization: Bearer <ID token>" de um ADMIN ativo (do município informado) com e-mail confirmado.
 // O papel é lido do Firestore com o token do próprio usuário (as regras decidem).
-export async function exigirAdmin(request: Request, projectId: string): Promise<{ email: string } | Response> {
+export const SLUG_OK = /^[a-z0-9-]{2,40}$/;
+export async function exigirAdmin(request: Request, projectId: string, municipio: unknown): Promise<{ email: string; municipio: string } | Response> {
+  // O papel é sempre conferido DENTRO do município informado: admin de um município não age em outro.
+  if (typeof municipio !== "string" || !SLUG_OK.test(municipio)) return resp(400, { error: "Município inválido." });
   const auth = request.headers.get("Authorization") || "";
   if (!auth.startsWith("Bearer ")) return resp(401, { error: "Não autenticado." });
   const idToken = auth.slice(7);
-  const user = await verificarToken(idToken, projectId);
+  // Token malformado não pode virar erro 500: qualquer falha na verificação é "não autenticado".
+  const user = await verificarToken(idToken, projectId).catch(() => null);
   if (!user) return resp(401, { error: "Token inválido." });
   const r = await fetch(
-    `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/equipe/${encodeURIComponent(user.email)}`,
+    `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/municipios/${municipio}/equipe/${encodeURIComponent(user.email)}`,
     { headers: { Authorization: `Bearer ${idToken}`, ...(request.headers.get("X-Firebase-AppCheck") ? { "X-Firebase-AppCheck": request.headers.get("X-Firebase-AppCheck")! } : {}) } },
   );
   if (!r.ok) return resp(403, { error: "Sem permissão." });
   const doc: any = await r.json();
   if (doc.fields?.papel?.stringValue !== "admin" || doc.fields?.ativo?.booleanValue !== true)
     return resp(403, { error: "Sem permissão." });
-  return { email: user.email };
+  return { email: user.email, municipio };
 }

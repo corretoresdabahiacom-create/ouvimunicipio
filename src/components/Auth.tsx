@@ -5,7 +5,8 @@ import { auth } from "../lib/firebase";
 import { mensagemDeErro } from "../lib/erros";
 import { useAuth } from "../lib/useAuth";
 import { Botao, Campo, Cartao, Aviso } from "./ui";
-import { Carrossel, Logo } from "./Marca";
+import { BotaoLibras, Carrossel, Logo } from "./Marca";
+import { idMunicipio } from "../lib/municipio";
 import { useSite } from "../lib/useConfig";
 import { LinkLegal } from "./Legal";
 import { VERSAO_TERMOS } from "../lib/types";
@@ -14,7 +15,7 @@ type Modo = "entrar" | "cadastrar" | "recuperar";
 
 export function TelaAuth() {
   const [modo, setModo] = useState<Modo>("entrar");
-  const { nome: municipio } = useSite();
+  const { nome: municipio, transparencia } = useSite();
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [email, setEmail] = useState("");
@@ -57,6 +58,7 @@ export function TelaAuth() {
         <p className="text-sm font-medium text-slate-700">Ouvidoria Municipal</p>
         <p className="text-sm text-slate-600">Envie sua mensagem à secretaria e acompanhe o protocolo.</p>
       </header>
+      <div className="flex justify-center"><BotaoLibras /></div>
       <Carrossel />
       <Cartao>
         <h2 className="mb-4 text-lg font-semibold">{modo === "entrar" ? "Entrar" : modo === "cadastrar" ? "Criar conta" : "Recuperar senha"}</h2>
@@ -87,6 +89,12 @@ export function TelaAuth() {
           {modo === "entrar" && <Botao variante="link" onClick={() => { setModo("recuperar"); setErro(""); }}>Esqueci a senha</Botao>}
         </div>
       </Cartao>
+      {idMunicipio() && (
+        <p className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-center text-sm">
+          <a href={`/${idMunicipio()}/consulta`} className="font-medium text-brand underline">Consultar um protocolo sem entrar</a>
+          {transparencia && <a href={`/${idMunicipio()}/transparencia`} className="font-medium text-brand underline">Painel de transparência</a>}
+        </p>
+      )}
     </main>
   );
 }

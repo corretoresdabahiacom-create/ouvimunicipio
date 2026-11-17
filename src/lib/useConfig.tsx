@@ -1,18 +1,19 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "./firebase";
+import { colM, docM, idMunicipio } from "./municipio";
 
-export interface SiteConfig { nome: string; cor: string; logo: string; contato: string }
+export interface SiteConfig { nome: string; cor: string; logo: string; contato: string; transparencia: boolean }
 export interface Anuncio { id: string; titulo: string; link: string; imagem: string; ativo: boolean; ordem: number }
 
-export const PADRAO: SiteConfig = { nome: "Prefeitura Municipal", cor: "#0b3b8c", logo: "", contato: "" };
-const CHAVE = "ouvidoria-site-config";
+export const PADRAO: SiteConfig = { nome: "Prefeitura Municipal", cor: "#0b3b8c", logo: "", contato: "", transparencia: false };
+const chave = () => `ouvidoria-site-config:${idMunicipio()}`;
 
 function lerCache(): SiteConfig {
-  try { const s = localStorage.getItem(CHAVE); if (s) return { ...PADRAO, ...JSON.parse(s) }; } catch { /* sem cache */ }
+  try { const s = localStorage.getItem(chave()); if (s) return { ...PADRAO, ...JSON.parse(s) }; } catch { /* sem cache */ }
   return PADRAO;
 }
-function gravarCache(c: SiteConfig) { try { localStorage.setItem(CHAVE, JSON.stringify(c)); } catch { /* ignore */ } }
+function gravarCache(c: SiteConfig) { try { localStorage.setItem(chave(), JSON.stringify(c)); } catch { /* ignore */ } }
 
 // ----- cores -----
 function rgb(hex: string): [number, number, number] {
@@ -47,12 +48,15 @@ export function SiteProvider({ children }: { children: ReactNode }) {
   const [cfg, setCfg] = useState<SiteConfig>(lerCache);
 
   useEffect(() => { aplicar(cfg); }, [cfg]);
-  useEffect(() => onSnapshot(doc(db, "config", "site"), (s) => {
+  useEffect(() => {
+    if (!idMunicipio()) return; // fora de um município (ex.: /superadmin) não há marca para carregar
+    return onSnapshot(docM("config", "site"), (s) => {
     // sem conexão o Firestore devolve "inexistente" do cache local: nesse caso mantém a marca já conhecida
     if (s.metadata.fromCache && !s.exists()) return;
-    const d = s.exists() ? { ...PADRAO, nome: s.get("nome") ?? PADRAO.nome, cor: s.get("cor") ?? PADRAO.cor, logo: s.get("logo") ?? "", contato: s.get("contato") ?? "" } : PADRAO;
+    const d = s.exists() ? { ...PADRAO, nome: s.get("nome") ?? PADRAO.nome, cor: s.get("cor") ?? PADRAO.cor, logo: s.get("logo") ?? "", contato: s.get("contato") ?? "", transparencia: s.get("transparencia") === true } : PADRAO;
     gravarCache(d); setCfg(d);
-  }, () => undefined), []);
+    }, () => undefined);
+  }, []);
 
   return <Ctx.Provider value={cfg}>{children}</Ctx.Provider>;
 }
@@ -60,7 +64,9 @@ export function SiteProvider({ children }: { children: ReactNode }) {
 export function useAnuncios(): Anuncio[] {
   const [lista, setLista] = useState<Anuncio[]>([]);
   useEffect(() => {
-    getDocs(query(collection(db, "anuncios"), where("ativo", "==", true)))
+    // fora de um município (ex.: /superadmin) não há anúncios: sem isso a tela de login quebrava
+    if (!idMunicipio()) return;
+    getDocs(query(colM("anuncios"), where("ativo", "==", true)))
       .then((s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Anuncio).sort((a, b) => a.ordem - b.ordem)))
       .catch(() => setLista([]));
   }, []);

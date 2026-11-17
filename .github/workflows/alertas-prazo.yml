@@ -1,0 +1,43 @@
+# Alertas diários de prazo por e-mail para as secretarias e o ouvidor geral (gratuito no GitHub Actions).
+# Só roda no horário se a variável do repositório ALERTAS_ATIVOS = true (Settings → Secrets and variables → Actions → Variables).
+# Segredos necessários (aba Secrets): FIREBASE_SERVICE_ACCOUNT, RESEND_API_KEY e, para entregar a qualquer e-mail, RESEND_FROM.
+# Para testar sem enviar: aba Actions → "Alertas de prazo" → Run workflow (modo teste já vem marcado).
+name: Alertas de prazo
+
+on:
+  schedule:
+    - cron: "0 11 * * 1-5" # 08:00 em Brasília, de segunda a sexta (o GitHub pode atrasar alguns minutos)
+  workflow_dispatch:
+    inputs:
+      teste:
+        description: "Modo teste (mostra os e-mails no registro e não envia)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  alertas:
+    if: github.event_name == 'workflow_dispatch' || vars.ALERTAS_ATIVOS == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Enviar alertas
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: node alertas-prazo.mjs ${{ (github.event_name == 'workflow_dispatch' && inputs.teste) && '--teste' || '' }}

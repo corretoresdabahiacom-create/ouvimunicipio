@@ -1,0 +1,17 @@
+{
+  "name": "ouvimunicipio-rules-tests",
+  "private": true,
+  "type": "module",
+  "description": "Testes automáticos das regras de segurança do Firestore (rodam no emulador, não tocam no banco real).",
+  "scripts": {
+    "test": "firebase emulators:exec --config ../firebase.json --only firestore --project demo-ouvi \"vitest run\"",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.14.0",
+    "firebase-tools": "^15.35.0",
+    "typescript": "~5.8.2",
+    "vitest": "^3.2.4"
+  }
+}

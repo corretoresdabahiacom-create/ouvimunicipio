@@ -4,6 +4,7 @@ import {
 } from "firebase/firestore";
 import { Download, RefreshCw } from "lucide-react";
 import { db } from "../lib/firebase";
+import { colM } from "../lib/municipio";
 import { mensagemDeErro } from "../lib/erros";
 import { TIPOS, type Secretaria } from "../lib/types";
 import { Aviso, Botao, Cartao, Carregando } from "./ui";
@@ -42,7 +43,7 @@ export function Indicadores({ secretarias }: { secretarias: Secretaria[] }) {
   async function atualizar() {
     setCarregando(true); setErro("");
     try {
-      const col = collection(db, "protocolos");
+      const col = colM("protocolos");
       const cont = async (...c: ReturnType<typeof where>[]) => (await getCountFromServer(query(col, ...c))).data().count;
       const [total, abertos, respondidos, concluidos, ab, rec] = await Promise.all([
         cont(), cont(where("status", "==", "aberto")), cont(where("status", "==", "respondido")), cont(where("status", "==", "concluido")),
@@ -62,7 +63,7 @@ export function Indicadores({ secretarias }: { secretarias: Secretaria[] }) {
         const l = get(d.get("secretariaId"), d.get("secretariaNome") ?? "—");
         l.abertos++;
         const c = d.get("criadoEm")?.toMillis?.() as number | undefined;
-        if (c) { const dias = Math.ceil((c + 30 * DIA - agora) / DIA); if (dias < 0) l.vencidos++; else if (dias <= 5) l.vencendo++; }
+        if (c) { const dias = Math.ceil((c + (30 + (d.get("prorrogadoEm") ? 30 : 0)) * DIA - agora) / DIA); if (dias < 0) l.vencidos++; else if (dias <= 5) l.vencendo++; }
       });
       rec.forEach((d) => {
         const l = get(d.get("secretariaId"), d.get("secretariaNome") ?? "—");
@@ -152,7 +153,7 @@ export function Relatorios({ auditar }: { auditar: Auditar }) {
       if (de) f.push(where("criadoEm", ">=", Timestamp.fromDate(new Date(`${de}T00:00:00`))));
       if (ate) f.push(where("criadoEm", "<=", Timestamp.fromDate(new Date(`${ate}T23:59:59`))));
       const docs = await paginar(5000, (c) =>
-        query(collection(db, "protocolos"), ...f, orderBy("criadoEm", "desc"), ...(c ? [startAfter(c)] : []), limit(500)));
+        query(colM("protocolos"), ...f, orderBy("criadoEm", "desc"), ...(c ? [startAfter(c)] : []), limit(500)));
       const linhas: unknown[][] = [["Protocolo", "Tipo", "Secretaria", "Situação", "Criado em", "Respondido em", "Concluído em", "Dias até a resposta", "Nota"]];
       docs.forEach((d) => {
         const c = d.get("criadoEm")?.toMillis?.(), r = d.get("respondidoEm")?.toMillis?.();
@@ -170,7 +171,7 @@ export function Relatorios({ auditar }: { auditar: Auditar }) {
     setOcupado("usuarios"); setErro(""); setMsg("");
     try {
       const docs = await paginar(5000, (c) =>
-        query(collection(db, "users"), orderBy("criadoEm", "desc"), ...(c ? [startAfter(c)] : []), limit(500)));
+        query(colM("users"), orderBy("criadoEm", "desc"), ...(c ? [startAfter(c)] : []), limit(500)));
       const linhas: unknown[][] = [["Nome", "E-mail", "Telefone", "Situação", "Cadastro em"]];
       docs.forEach((d) => linhas.push([d.get("nome"), d.get("email"), d.get("telefone") ?? "", d.get("situacao") ?? "ativo", dt(d.get("criadoEm"))]));
       baixarCSV(`usuarios-${hoje()}.csv`, linhas);
@@ -182,7 +183,7 @@ export function Relatorios({ auditar }: { auditar: Auditar }) {
   async function backupConfig() {
     setOcupado("config"); setErro(""); setMsg("");
     try {
-      const ler = async (n: string) => (await getDocs(collection(db, n))).docs.map((d) => ({ id: d.id, ...d.data() }));
+      const ler = async (n: string) => (await getDocs(colM(n))).docs.map((d) => ({ id: d.id, ...d.data() }));
       const [secretarias, equipe, config, anuncios] = await Promise.all([ler("secretarias"), ler("equipe"), ler("config"), ler("anuncios")]);
       const json = JSON.stringify({ geradoEm: new Date().toISOString(), secretarias, equipe, config, anuncios }, (_k, v) => (v && typeof v === "object" && typeof v.toDate === "function" ? v.toDate().toISOString() : v), 2);
       baixar(`backup-configuracao-${hoje()}.json`, new Blob([json], { type: "application/json" }));

@@ -1,6 +1,6 @@
 import { type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from "react";
 import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
-import type { Protocolo } from "../lib/types";
+import { PRAZO_DIAS, PRAZO_PRORROGACAO_DIAS, type Protocolo } from "../lib/types";
 
 export function Botao({ carregando, variante = "primario", className = "", children, ...p }:
   ButtonHTMLAttributes<HTMLButtonElement> & { carregando?: boolean; variante?: "primario" | "secundario" | "perigo" | "link" }) {
@@ -57,12 +57,44 @@ export function dataBR(t: { toDate?: () => Date } | null | undefined): string {
   return t?.toDate ? t.toDate().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "agora";
 }
 
+const DIA_MS = 86_400_000;
+
+// Prazo da manifestação: 30 dias, mais 30 se a secretaria prorrogou (uma única vez, com justificativa).
 export function prazoFinal(p: Protocolo): Date | null {
   const d = p.criadoEm?.toDate?.();
-  return d ? new Date(d.getTime() + 30 * 86400_000) : null;
+  return d ? new Date(d.getTime() + (PRAZO_DIAS + (p.prorrogadoEm ? PRAZO_PRORROGACAO_DIAS : 0)) * DIA_MS) : null;
 }
 
 export function diasRestantes(p: Protocolo): number | null {
   const f = prazoFinal(p);
-  return f ? Math.ceil((f.getTime() - Date.now()) / 86400_000) : null;
+  return f ? Math.ceil((f.getTime() - Date.now()) / DIA_MS) : null;
+}
+
+// Alertas de prazo: 10 dias, 5 dias, 2 dias, no dia do vencimento e depois de vencido.
+export type NivelPrazo = "ok" | "dez" | "cinco" | "dois" | "hoje" | "vencido";
+export function nivelPrazo(p: Protocolo, agora = Date.now()): NivelPrazo | null {
+  const f = prazoFinal(p);
+  if (!f) return null;
+  const ms = f.getTime() - agora;
+  if (ms < 0) return "vencido";
+  if (ms < DIA_MS) return "hoje";
+  if (ms <= 2 * DIA_MS) return "dois";
+  if (ms <= 5 * DIA_MS) return "cinco";
+  if (ms <= 10 * DIA_MS) return "dez";
+  return "ok";
+}
+
+export function rotuloPrazo(p: Protocolo): { texto: string; classe: string; urgente: boolean } | null {
+  const n = nivelPrazo(p);
+  if (!n) return null;
+  const d = diasRestantes(p) ?? 0;
+  const prorrog = p.prorrogadoEm ? " (prorrogado)" : "";
+  switch (n) {
+    case "vencido": return { texto: `Prazo vencido${prorrog}`, classe: "font-semibold text-red-800", urgente: true };
+    case "hoje": return { texto: `Vence hoje${prorrog}`, classe: "font-semibold text-red-800", urgente: true };
+    case "dois": return { texto: `Vence em até 2 dias${prorrog}`, classe: "font-semibold text-red-800", urgente: true };
+    case "cinco": return { texto: `Vence em até 5 dias${prorrog}`, classe: "font-semibold text-orange-800", urgente: true };
+    case "dez": return { texto: `Vence em até 10 dias${prorrog}`, classe: "font-medium text-amber-800", urgente: false };
+    default: return { texto: `Prazo: ${d} dias${prorrog}`, classe: "text-slate-700", urgente: false };
+  }
 }

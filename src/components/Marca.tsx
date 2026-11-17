@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Landmark } from "lucide-react";
+import { ChevronLeft, ChevronRight, Hand, Landmark } from "lucide-react";
+import { ativarLibras } from "../lib/libras";
 import { linkSeguro, useAnuncios, useSite } from "../lib/useConfig";
 
 export function Logo({ tamanho = "size-10", className = "" }: { tamanho?: string; className?: string }) {
@@ -7,6 +8,18 @@ export function Logo({ tamanho = "size-10", className = "" }: { tamanho?: string
   return logo
     ? <img src={logo} alt="" className={`${tamanho} shrink-0 object-contain ${className}`} />
     : <Landmark className={`${tamanho} shrink-0 ${className}`} aria-hidden />;
+}
+
+// Abre a tradução da tela para Libras (VLibras, do Governo Federal). Baixado só ao clicar.
+export function BotaoLibras({ claro = false }: { claro?: boolean }) {
+  const [estado, setEstado] = useState<"" | "carregando" | "erro">("");
+  return (
+    <button type="button" onClick={() => { setEstado("carregando"); ativarLibras().then(() => setEstado(""), () => setEstado("erro")); }}
+      aria-label="Traduzir para Libras (VLibras)" title={estado === "erro" ? "Não foi possível carregar o VLibras" : "Traduzir para Libras"}
+      className={`flex items-center gap-1 rounded px-2 py-1.5 text-sm font-medium ${claro ? "hover:bg-white/10" : "border border-slate-300 text-slate-800 hover:bg-slate-100"}`}>
+      <Hand className="size-4" aria-hidden /> {estado === "carregando" ? "Abrindo…" : estado === "erro" ? "Libras indisponível" : "Libras"}
+    </button>
+  );
 }
 
 export function Cabecalho() {

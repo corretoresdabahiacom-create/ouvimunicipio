@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Download, Smartphone, Monitor } from "lucide-react";
 import { Botao, Cartao } from "./ui";
+import { idMunicipio } from "../lib/municipio";
 
 interface BIPEvent extends Event { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
 
@@ -9,7 +10,8 @@ export function Instalar() {
   const [qr, setQr] = useState("");
   const [evt, setEvt] = useState<BIPEvent | null>(null);
   const [instalado, setInstalado] = useState(window.matchMedia("(display-mode: standalone)").matches);
-  const url = window.location.origin;
+  // o QR Code leva direto ao município (sem isso, um celular novo cairia na página inicial genérica)
+  const url = `${window.location.origin}/${idMunicipio()}`;
 
   useEffect(() => { QRCode.toDataURL(url, { width: 280, margin: 2 }).then(setQr).catch(() => undefined); }, [url]);
   useEffect(() => {

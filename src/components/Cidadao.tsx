@@ -1,12 +1,18 @@
-import { useEffect, useState, useMemo, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useState, useMemo, type FormEvent } from "react";
 import { collection, doc, getDocs, onSnapshot, query, where, writeBatch, serverTimestamp, Timestamp, deleteDoc } from "firebase/firestore";
-import { Send, Bell, Clock } from "lucide-react";
+import { Send, Bell, Clock, MapPin, LocateFixed } from "lucide-react";
 import { db } from "../lib/firebase";
+import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
-import { TIPOS, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
-import { Aviso, Botao, Campo, Cartao, Carregando, Selo, dataBR, diasRestantes } from "./ui";
+import { registrarEnvio } from "../lib/limite";
+import { sincronizarFicha } from "../lib/consulta";
+import { TIPOS, type Coordenada, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
+import { Aviso, Botao, Campo, Cartao, Carregando, Selo, dataBR, rotuloPrazo } from "./ui";
 import { ProtocoloDetalhe, SeletorAnexos, gravarMidias, prepararAnexos, useAnexos, useLimpezaConversas } from "./Conversa";
+
+const SeletorLocal = lazy(() => import("./Mapa").then((m) => ({ default: m.SeletorLocal })));
+const arred = (n: number, casas: number) => Math.round(n * 10 ** casas) / 10 ** casas;
 
 function gerarNumero(): string {
   const alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -25,9 +31,22 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
   const anexos = useAnexos();
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [local, setLocal] = useState<Coordenada | null>(null);
+  const [mapaAberto, setMapaAberto] = useState(false);
+  const [gps, setGps] = useState("");
+
+  function usarGps() {
+    if (!("geolocation" in navigator)) return setGps("Este aparelho não informa a localização. Marque no mapa.");
+    setGps("Buscando sua localização…");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setLocal({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setMapaAberto(true); setGps("Confira o ponto no mapa e toque para ajustar, se precisar."); },
+      (err) => setGps(err.code === 1 ? "Você não permitiu o acesso à localização. Marque o local no mapa." : "Não foi possível obter a localização. Marque o local no mapa."),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  }
 
   useEffect(() => {
-    getDocs(query(collection(db, "secretarias"), where("ativa", "==", true)))
+    getDocs(query(colM("secretarias"), where("ativa", "==", true)))
       .then((s) => setSecs(s.docs.map((d) => ({ id: d.id, nome: d.get("nome"), ativa: true })).sort((a, b) => a.nome.localeCompare(b.nome))))
       .catch((e) => { setErro(mensagemDeErro(e)); setSecs([]); });
   }, []);
@@ -47,21 +66,27 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
       const preparados = await prepararAnexos(anexos.arquivos, "00");
       const numero = gerarNumero();
       const lote = writeBatch(db);
-      lote.set(doc(db, "protocolos", numero), {
+      await registrarEnvio(lote, perfil.uid, numero);
+      lote.set(docM("protocolos", numero), {
         numero, autorUid: perfil.uid, secretariaId: sec.id, secretariaNome: sec.nome,
         tipo, status: "aberto", ultimaMsgPor: "cidadao", criadoEm: serverTimestamp(),
+        // só a região aproximada (≈100 m) vai no protocolo, para o mapa interno
+        ...(local ? { regiao: { lat: arred(local.lat, 3), lng: arred(local.lng, 3) } } : {}),
       });
-      lote.set(doc(db, "protocolos", numero, "mensagens", "m00"), {
+      lote.set(docM("protocolos", numero, "mensagens", "m00"), {
         de: "cidadao", autorUid: perfil.uid, assunto: assunto.trim(), texto: mensagem.trim(),
         anexos: preparados.map((p) => p.meta), criadoEm: serverTimestamp(),
+        // o ponto exato fica só na conversa (lida só por você, pela secretaria e pela Ouvidoria)
+        ...(local ? { local: { lat: arred(local.lat, 6), lng: arred(local.lng, 6) } } : {}),
       });
       gravarMidias(lote, numero, preparados);
-      lote.set(doc(collection(db, "notificacoes")), {
+      lote.set(doc(colM("notificacoes")), {
         uid: perfil.uid, protocoloId: numero, tipo: "recebido",
         mensagem: `Protocolo ${numero} registrado para ${sec.nome}. Prazo de resposta: 30 dias.`,
         criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
       });
       await lote.commit();
+      void sincronizarFicha(numero);
       aoConcluir(numero);
     } catch (err) {
       setErro(mensagemDeErro(err));
@@ -96,8 +121,20 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base" />
           <span className="text-xs text-slate-600">{mensagem.length}/5000</span>
         </label>
+        <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3">
+          <legend className="px-1 text-sm font-medium text-slate-700">Local da ocorrência (opcional)</legend>
+          <p className="text-xs text-slate-600">Ajuda a secretaria a achar o problema (buraco, iluminação, lixo…). O ponto exato fica só na sua conversa; nos mapas internos da prefeitura aparece aproximado.</p>
+          <div className="flex flex-wrap gap-2">
+            <Botao type="button" variante="secundario" onClick={usarGps}><LocateFixed className="size-4" aria-hidden /> Usar minha localização</Botao>
+            <Botao type="button" variante="secundario" onClick={() => setMapaAberto((v) => !v)} aria-expanded={mapaAberto}><MapPin className="size-4" aria-hidden /> {mapaAberto ? "Fechar mapa" : "Marcar no mapa"}</Botao>
+            {local && <Botao type="button" variante="link" onClick={() => { setLocal(null); setGps(""); }}>Remover local</Botao>}
+          </div>
+          {gps && <p className="text-sm text-slate-700" role="status">{gps}</p>}
+          {local && <p className="text-sm text-emerald-800">Local marcado ({local.lat.toFixed(5)}, {local.lng.toFixed(5)}).</p>}
+          {mapaAberto && <Suspense fallback={<Carregando texto="Abrindo o mapa…" />}><SeletorLocal valor={local} onChange={setLocal} /></Suspense>}
+        </fieldset>
         <SeletorAnexos a={anexos} />
-        <p className="text-xs text-slate-600">Sua mensagem só pode ser lida por você e pela secretaria escolhida.</p>
+        <p className="text-xs text-slate-600">Sua mensagem só pode ser lida por você, pela secretaria escolhida e pela Ouvidoria geral do município (que pode encaminhá-la ao setor certo).</p>
         {erro && <Aviso>{erro}</Aviso>}
         <Botao type="submit" carregando={ocupado} className="w-full"><Send className="size-4" aria-hidden /> Enviar mensagem</Botao>
       </form>
@@ -110,7 +147,7 @@ export function usarProtocolos(campo: "autorUid" | "secretariaId", valor: string
   const [erro, setErro] = useState("");
   useEffect(() => {
     if (!valor) { setLista([]); return; }
-    return onSnapshot(query(collection(db, "protocolos"), where(campo, "==", valor)),
+    return onSnapshot(query(colM("protocolos"), where(campo, "==", valor)),
       (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Protocolo)
         .sort((a, b) => (b.criadoEm?.toMillis?.() ?? Date.now()) - (a.criadoEm?.toMillis?.() ?? Date.now()))),
       (e) => { setErro(mensagemDeErro(e)); setLista([]); });
@@ -139,8 +176,8 @@ export function MeusProtocolos({ abrir, selecionado, limparSelecao }: { abrir: (
           <p className="mt-1 font-semibold">{TIPOS[p.tipo] ?? p.assunto ?? "Manifestação"}</p>
           <p className="text-sm text-slate-700">{p.secretariaNome} · {dataBR(p.criadoEm)}</p>
           {p.status === "respondido" && p.ultimaMsgPor === "servidor" && <p className="mt-1 text-xs font-semibold text-emerald-800">Há resposta da secretaria</p>}
-          {p.status === "aberto" && diasRestantes(p) !== null && (
-            <p className="mt-1 flex items-center gap-1 text-xs text-amber-800"><Clock className="size-3" aria-hidden /> Prazo: {diasRestantes(p)} dias</p>
+          {p.status === "aberto" && rotuloPrazo(p) && (
+            <p className="mt-1 flex items-center gap-1 text-xs text-amber-800"><Clock className="size-3" aria-hidden /> {rotuloPrazo(p)!.texto}</p>
           )}
         </button>
       ))}
@@ -156,7 +193,7 @@ export function usarNotificacoes() {
 
   useEffect(() => {
     if (!perfil) return;
-    return onSnapshot(query(collection(db, "notificacoes"), where("uid", "==", perfil.uid)),
+    return onSnapshot(query(colM("notificacoes"), where("uid", "==", perfil.uid)),
       (s) => setTodas(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Notificacao)), () => setTodas([]));
   }, [perfil]);
 
@@ -167,7 +204,7 @@ export function usarNotificacoes() {
 
   // limpeza: apaga do banco os avisos já vencidos
   useEffect(() => {
-    todas.filter((n) => n.expiraEm.toMillis() <= agora).forEach((n) => { void deleteDoc(doc(db, "notificacoes", n.id)).catch(() => undefined); });
+    todas.filter((n) => n.expiraEm.toMillis() <= agora).forEach((n) => { void deleteDoc(docM("notificacoes", n.id)).catch(() => undefined); });
   }, [todas, agora]);
 
   return { visiveis, agora };
@@ -187,13 +224,13 @@ export function PainelAvisos({ abrirProtocolo }: { abrirProtocolo: (id: string) 
       <h2 className="flex items-center gap-2 text-lg font-semibold"><Bell className="size-5" aria-hidden /> Avisos</h2>
       {visiveis.length === 0 && <Cartao><p className="text-slate-600">Nenhum aviso no momento.</p></Cartao>}
       {visiveis.map((n) => (
-        <Cartao key={n.id} className={n.tipo === "resposta" ? "border-emerald-300 bg-emerald-50" : n.tipo === "aviso" ? "border-amber-300 bg-amber-50" : ""}>
-          <p className="text-sm font-medium">{n.tipo === "resposta" ? "Resposta recebida" : n.tipo === "aviso" ? "Aviso da prefeitura" : "Protocolo registrado"}</p>
+        <Cartao key={n.id} className={n.tipo === "resposta" ? "border-emerald-300 bg-emerald-50" : n.tipo === "aviso" || n.tipo === "prorrogacao" ? "border-amber-300 bg-amber-50" : ""}>
+          <p className="text-sm font-medium">{n.tipo === "resposta" ? "Resposta recebida" : n.tipo === "aviso" ? "Aviso da prefeitura" : n.tipo === "prorrogacao" ? "Prazo prorrogado" : "Protocolo registrado"}</p>
           <p className="mt-1 whitespace-pre-line text-slate-800">{n.mensagem}</p>
           <p className="mt-1 text-xs text-slate-600">{dataBR(n.criadoEm)} · {restante(n, agora)}</p>
           <div className="mt-2 flex gap-2">
             {n.protocoloId && <Botao variante="secundario" onClick={() => abrirProtocolo(n.protocoloId)}>Abrir protocolo</Botao>}
-            <Botao variante="link" onClick={() => { void deleteDoc(doc(db, "notificacoes", n.id)); }}>Dispensar</Botao>
+            <Botao variante="link" onClick={() => { void deleteDoc(docM("notificacoes", n.id)); }}>Dispensar</Botao>
           </div>
         </Cartao>
       ))}
