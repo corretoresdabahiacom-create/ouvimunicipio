@@ -1,5 +1,5 @@
 import { type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from "react";
-import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2, ArrowLeft } from "lucide-react";
 import { PRAZO_DIAS, PRAZO_PRORROGACAO_DIAS, type Protocolo } from "../lib/types";
 
 export function Botao({ carregando, variante = "primario", className = "", children, ...p }:
@@ -97,4 +97,21 @@ export function rotuloPrazo(p: Protocolo): { texto: string; classe: string; urge
     case "dez": return { texto: `Vence em até 10 dias${prorrog}`, classe: "font-medium text-amber-800", urgente: false };
     default: return { texto: `Prazo: ${d} dias${prorrog}`, classe: "text-slate-700", urgente: false };
   }
+}
+
+// Volta para a tela anterior. Se a pessoa chegou direto (link, QR Code), leva para "destino".
+export function BotaoVoltar({ destino, onClick, claro = false }: { destino?: string; onClick?: () => void; claro?: boolean }) {
+  function voltar() {
+    if (onClick) return onClick();
+    let veioDoSite = false;
+    try { veioDoSite = !!document.referrer && new URL(document.referrer).origin === location.origin; } catch { /* ignore */ }
+    if (veioDoSite && history.length > 1) history.back();
+    else location.assign(destino ?? "/");
+  }
+  return (
+    <button type="button" onClick={voltar}
+      className={`inline-flex items-center gap-1 rounded px-2 py-1.5 text-sm font-medium ${claro ? "hover:bg-white/10" : "text-brand hover:bg-slate-100"}`}>
+      <ArrowLeft className="size-4" aria-hidden /> Voltar
+    </button>
+  );
 }

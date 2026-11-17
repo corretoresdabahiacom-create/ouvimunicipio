@@ -3,7 +3,7 @@ import { getDoc } from "firebase/firestore";
 import { docM, useMunicipio } from "../lib/municipio";
 import { useSite } from "../lib/useConfig";
 import type { Estatisticas } from "../lib/types";
-import { Aviso, Carregando, dataBR } from "./ui";
+import { Aviso, BotaoVoltar, Carregando, dataBR } from "./ui";
 import { BotaoLibras, Logo } from "./Marca";
 import { PainelNumeros } from "./Prefeito";
 
@@ -23,6 +23,7 @@ export function PaginaTransparencia() {
 
   return (
     <div className="mx-auto min-h-dvh max-w-3xl space-y-4 p-4">
+      <BotaoVoltar destino={`/${m?.id ?? ""}`} />
       <header className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Logo tamanho="size-12" className="text-brand" />
