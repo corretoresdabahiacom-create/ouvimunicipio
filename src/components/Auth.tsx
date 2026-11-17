@@ -89,8 +89,11 @@ export function TelaAuth() {
           {modo === "entrar" && <Botao variante="link" onClick={() => { setModo("recuperar"); setErro(""); }}>Esqueci a senha</Botao>}
         </div>
       </Cartao>
-      {transparencia && idMunicipio() && (
-        <p className="text-center text-sm"><a href={`/${idMunicipio()}/transparencia`} className="font-medium text-brand underline">Painel de transparência da Ouvidoria</a></p>
+      {idMunicipio() && (
+        <p className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-center text-sm">
+          <a href={`/${idMunicipio()}/consulta`} className="font-medium text-brand underline">Consultar um protocolo sem entrar</a>
+          {transparencia && <a href={`/${idMunicipio()}/transparencia`} className="font-medium text-brand underline">Painel de transparência</a>}
+        </p>
       )}
     </main>
   );

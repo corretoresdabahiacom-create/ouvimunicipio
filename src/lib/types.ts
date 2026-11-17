@@ -64,6 +64,7 @@ export interface Protocolo {
   prorrogacaoPor?: string;
   // ouvidor geral: encaminhamentos (histórico em protocolos/{n}/historico) e cobrança interna ao setor
   encaminhamentos?: number;
+  regiao?: Coordenada; // local aproximado (≈100 m) para o mapa; o exato fica só na conversa
   encaminhadoEm?: Timestamp | null;
   cobradoEm?: Timestamp | null;
   ultimaMsgPor?: "cidadao" | "servidor";
@@ -82,7 +83,23 @@ export interface Mensagem {
   assunto?: string;
   anexos: AnexoMeta[];
   criadoEm: Timestamp | null;
+  local?: Coordenada; // só na 1ª mensagem: local exato informado pelo cidadão (opcional)
 }
+
+export interface Coordenada { lat: number; lng: number }
+
+// Ficha pública do protocolo (consulta pelo número, sem login): cópia fiel de alguns campos do protocolo.
+export interface FichaConsulta {
+  status: Protocolo["status"];
+  secretariaNome: string;
+  criadoEm: Timestamp | null;
+  respondidoEm?: Timestamp | null;
+  concluidoEm?: Timestamp | null;
+  prorrogadoEm?: Timestamp | null;
+}
+
+// Resposta-modelo da secretaria (texto pronto para as respostas). Marcadores: {numero}, {secretaria}.
+export interface Modelo { id: string; secretariaId: string; titulo: string; texto: string }
 
 export interface Notificacao {
   id: string;

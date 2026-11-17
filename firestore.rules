@@ -67,6 +67,17 @@ service cloud.firestore {
     function ehOuvidor()  { return naEquipe() && docEquipe().papel == 'ouvidor'; }
     function ehPrefeito() { return naEquipe() && docEquipe().papel == 'prefeito'; }
     function minhaSecretaria() { return docEquipe().secretariaId; }
+    // Local da ocorrência (opcional). Exato só na 1ª mensagem (conversa protegida); no protocolo, aproximado (3 casas ≈ 100 m).
+    function coordOk(c) {
+      return c is map && c.keys().hasOnly(['lat', 'lng']) && c.keys().hasAll(['lat', 'lng'])
+        && c.lat is number && c.lng is number
+        && c.lat >= -90 && c.lat <= 90 && c.lng >= -180 && c.lng <= 180;
+    }
+    function aproximadoOk(c) {
+      return coordOk(c)
+        && math.abs(c.lat * 1000 - math.round(c.lat * 1000)) < 0.01
+        && math.abs(c.lng * 1000 - math.round(c.lng * 1000)) < 0.01;
+    }
 
     // ---------- perfil do usuário ----------
     // Cada pessoa lê/edita só o seu (nome, telefone opcional). O admin lê a lista e pode
@@ -188,7 +199,8 @@ service cloud.firestore {
       allow create: if verificado() && termosOk() && municipioAtivo()
         && numero.matches('OUV-[0-9]{4}-[A-Z0-9]{8}')
         && request.resource.data.keys().hasOnly(
-             ['numero', 'autorUid', 'secretariaId', 'secretariaNome', 'tipo', 'status', 'criadoEm', 'ultimaMsgPor'])
+             ['numero', 'autorUid', 'secretariaId', 'secretariaNome', 'tipo', 'status', 'criadoEm', 'ultimaMsgPor', 'regiao'])
+        && (!('regiao' in request.resource.data) || aproximadoOk(request.resource.data.regiao))
         && request.resource.data.numero == numero
         && request.resource.data.autorUid == request.auth.uid
         && request.resource.data.tipo in ['reclamacao', 'denuncia', 'solicitacao', 'sugestao', 'elogio', 'informacao']
@@ -284,7 +296,8 @@ service cloud.firestore {
         allow read: if verificado() && (participante() || ehOuvidor());
         allow create: if verificado() && termosOk()
           && municipioAtivo() && msg.matches('m[0-4][0-9]')
-          && request.resource.data.keys().hasOnly(['de', 'autorUid', 'texto', 'assunto', 'anexos', 'criadoEm'])
+          && request.resource.data.keys().hasOnly(['de', 'autorUid', 'texto', 'assunto', 'anexos', 'criadoEm', 'local'])
+          && (!('local' in request.resource.data) || (msg == 'm00' && coordOk(request.resource.data.local)))
           && request.resource.data.autorUid == request.auth.uid
           && request.resource.data.criadoEm == request.time
           && request.resource.data.texto is string && request.resource.data.texto.size() >= 1 && request.resource.data.texto.size() <= 5000
@@ -353,6 +366,44 @@ service cloud.firestore {
           && hid == 'h' + string(getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.encaminhamentos);
         allow update, delete: if false;
       }
+    }
+
+    // ---------- consulta pública do protocolo pelo número (sem login) ----------
+    // Ficha mínima: situação, secretaria e datas. Sem nome, tipo, texto ou nota. As regras exigem que seja uma CÓPIA FIEL
+    // do protocolo (getAfter), então ninguém consegue publicar uma situação falsa; quem grava é quem mexe no protocolo.
+    // O número tem 8 caracteres aleatórios (32^8 combinações): só quem recebeu o número consegue consultar.
+    match /consulta/{numero} {
+      function espelhoOk() {
+        let p = getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data;
+        return request.resource.data.keys().hasOnly(['status', 'secretariaNome', 'criadoEm', 'respondidoEm', 'concluidoEm', 'prorrogadoEm'])
+          && request.resource.data.status == p.status
+          && request.resource.data.secretariaNome == p.secretariaNome
+          && request.resource.data.criadoEm == p.criadoEm
+          && request.resource.data.get('respondidoEm', null) == p.get('respondidoEm', null)
+          && request.resource.data.get('concluidoEm', null) == p.get('concluidoEm', null)
+          && request.resource.data.get('prorrogadoEm', null) == p.get('prorrogadoEm', null);
+      }
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if verificado() && espelhoOk();
+      allow delete: if false;
+    }
+
+    // ---------- respostas-modelo da secretaria ----------
+    // Textos prontos que a equipe da secretaria usa nas respostas. Só a própria secretaria lê; só o secretário edita.
+    match /modelos/{id} {
+      function secretarioDaqui() { return ehServidor() && docEquipe().papel == 'secretario'; }
+      function camposModeloOk() {
+        return request.resource.data.keys().hasOnly(['secretariaId', 'titulo', 'texto', 'atualizadoEm'])
+          && request.resource.data.secretariaId == minhaSecretaria()
+          && request.resource.data.titulo is string && request.resource.data.titulo.size() >= 3 && request.resource.data.titulo.size() <= 80
+          && request.resource.data.texto is string && request.resource.data.texto.size() >= 1 && request.resource.data.texto.size() <= 5000
+          && request.resource.data.atualizadoEm == request.time;
+      }
+      allow read: if verificado() && ehServidor() && resource.data.secretariaId == minhaSecretaria();
+      allow create: if verificado() && secretarioDaqui() && camposModeloOk();
+      allow update: if verificado() && secretarioDaqui() && resource.data.secretariaId == minhaSecretaria() && camposModeloOk();
+      allow delete: if verificado() && secretarioDaqui() && resource.data.secretariaId == minhaSecretaria();
     }
 
     // ---------- estatísticas para o prefeito (SOMENTE números, sem dados pessoais) ----------

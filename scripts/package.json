@@ -2,6 +2,12 @@
   "name": "ouvimunicipio-scripts",
   "private": true,
   "type": "module",
-  "description": "Scripts de manutenção (migração). Separado do app: não entra no build do Cloudflare.",
-  "dependencies": { "firebase-admin": "^13.0.0" }
+  "description": "Scripts de manutenção (migração, alertas de prazo). Separado do app: não entra no build do Cloudflare.",
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  },
+  "scripts": {
+    "test": "node --test prazos.test.mjs",
+    "alertas": "node alertas-prazo.mjs"
+  }
 }

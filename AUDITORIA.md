@@ -142,3 +142,20 @@ em blocos de 100 (máx. 500) é coerente com a função; isolamento entre munic�
 
 Observação: o resumo publicado guarda o nome de quem o gerou (`geradoPor`, um servidor). Com a transparência ligada, esse campo
 também fica legível publicamente (a tela não o mostra).
+
+## Inovações 4 a 7 — 17/11/2026
+
+| Item | O que faz | Testado |
+|---|---|---|
+| **Respostas-modelo** | Aba "Respostas-modelo" no painel da secretaria: o secretário cria/edita/apaga textos prontos; toda a equipe da secretaria escolhe um em "Inserir resposta-modelo" ao responder. Marcadores `{numero}` e `{secretaria}`. Outra secretaria, ouvidor e admin não leem | Regras: 4 testes. Tela: compila (sem Firebase aqui) |
+| **Consulta pública pelo número** (`/{município}/consulta`) | Sem login: situação, secretaria, datas e prazo. Ficha separada (`consulta/{número}`) só com esses campos; as regras exigem **cópia fiel** do protocolo. Ninguém lista as fichas. Link na tela de login | Regras: 7 testes. Validação do número conferida no navegador |
+| **Alertas diários de prazo por e-mail** | GitHub Actions, dias úteis às 8h: cada secretário/assessor recebe os protocolos da sua secretaria vencidos ou que vencem em até 5 dias; o ouvidor recebe o resumo dos vencidos e dos que vencem em até 2 dias. Só número, tipo e prazo (sem conteúdo). Desligado até você configurar | Lógica: 3 testes (`scripts/prazos.test.mjs`) executados aqui. Envio real **não testado** |
+| **Mapa de ocorrências** | Na manifestação, local opcional (GPS ou toque no mapa). O ponto exato fica só na 1ª mensagem; o protocolo guarda só a posição aproximada (3 casas decimais ≈ 100 m), validada pelas regras. Mapa com cores por situação na aba "Mapa" da secretaria e em "Ver no mapa" do ouvidor (OpenStreetMap, gratuito) | Regras: 4 testes. Mapa, pontos, clique e marcação conferidos no navegador (sem imagens do mapa aqui) |
+
+Total de testes das regras: 154, **ainda não executados** (rodam no GitHub após o push).
+Política de Privacidade atualizada (local da ocorrência e consulta pelo número). Permissões: GPS liberado só para o próprio site.
+
+**Riscos e limites:** a conta de serviço usada pelos alertas tem acesso total ao banco (é um segredo; fica só nos Secrets do GitHub;
+o script só lê metadados e a equipe). A ficha pública é atualizada logo depois de cada mudança; se a conexão cair nesse instante,
+ela fica desatualizada até a próxima mudança do protocolo. Os mapas usam os servidores públicos do OpenStreetMap, adequados para
+uso leve; com muito uso, trocar por um provedor de mapas próprio.

@@ -58,3 +58,17 @@ Remover ou desativar o cadastro tira o acesso na hora.
 ## Termos e LGPD
 Textos-modelo em `src/components/Legal.tsx` (revise com a assessoria jurídica). Versão em `VERSAO_TERMOS`
 (`src/lib/types.ts`); mudar a versão pede novo aceite de todos.
+
+## Alertas diários de prazo por e-mail (opcional, gratuito)
+Rodam no GitHub Actions (`.github/workflows/alertas-prazo.yml`), de segunda a sexta às 8h, e ficam **desligados** até você configurar:
+1. Firebase → Configurações do projeto → **Contas de serviço** → *Gerar nova chave privada* (arquivo JSON; é um segredo).
+2. GitHub → repositório → Settings → Secrets and variables → Actions → **Secrets**: `FIREBASE_SERVICE_ACCOUNT` (cole o conteúdo
+   inteiro do JSON), `RESEND_API_KEY` e `RESEND_FROM` (remetente de domínio verificado no Resend; sem isso só chega ao dono da conta).
+   Depois apague o arquivo JSON do computador.
+3. Teste: aba **Actions** → *Alertas de prazo* → *Run workflow* com "Modo teste" marcado. O registro mostra quem receberia o quê.
+4. Para ligar o envio diário: aba **Variables** → `ALERTAS_ATIVOS` = `true` (e, se usar domínio próprio, `APP_URL`).
+
+## Mapa, consulta e respostas-modelo
+- Local da ocorrência: opcional para o cidadão (GPS ou toque no mapa). Mapa nas abas da secretaria e do ouvidor.
+- Consulta sem login: `/{municipio}/consulta` (link na tela de login).
+- Respostas-modelo: aba "Respostas-modelo" do painel da secretaria (o secretário edita; a equipe usa).

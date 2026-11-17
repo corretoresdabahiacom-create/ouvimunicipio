@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, serverTimestamp, Timestamp, updateDoc, writeBatch, type WriteBatch,
+  collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type WriteBatch,
 } from "firebase/firestore";
-import { ArrowLeft, Paperclip, Send, Star, X } from "lucide-react";
+import { ArrowLeft, MapPin, Paperclip, Send, Star, X } from "lucide-react";
 import { db } from "../lib/firebase";
 import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
+import { sincronizarFicha } from "../lib/consulta";
 import {
   MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, juntarPartes, tipoDe,
 } from "../lib/media";
-import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Protocolo } from "../lib/types";
+import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
 import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
 
 const DIA = 86_400_000;
@@ -189,11 +190,31 @@ function Balao({ m, numero, eu }: { m: Mensagem; numero: string; eu: "cidadao" |
         <p className="text-xs font-semibold">{quem} · <span className="font-normal">{dataBR(m.criadoEm)}</span></p>
         {m.assunto && <p className="mt-1 font-semibold">{m.assunto}</p>}
         <p className="mt-1 whitespace-pre-wrap">{m.texto}</p>
+        {m.local && (
+          <a className="mt-2 inline-flex items-center gap-1 text-sm font-medium underline" target="_blank" rel="noreferrer"
+            href={`https://www.openstreetmap.org/?mlat=${m.local.lat}&mlon=${m.local.lng}#map=18/${m.local.lat}/${m.local.lng}`}>
+            <MapPin className="size-4" aria-hidden /> Ver o local informado no mapa
+          </a>
+        )}
         {m.anexos?.length > 0 && <Midias numero={numero} anexos={m.anexos} />}
       </div>
     </li>
   );
 }
+
+// Respostas-modelo da secretaria (só servidores da própria secretaria leem)
+function useModelos(secretariaId: string | undefined, ativo: boolean) {
+  const [lista, setLista] = useState<Modelo[]>([]);
+  useEffect(() => {
+    if (!ativo || !secretariaId) return;
+    return onSnapshot(query(colM("modelos"), where("secretariaId", "==", secretariaId)),
+      (s) => setLista(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Modelo).sort((a, b) => a.titulo.localeCompare(b.titulo))),
+      () => setLista([]));
+  }, [secretariaId, ativo]);
+  return lista;
+}
+export const aplicarModelo = (texto: string, p: Protocolo) =>
+  texto.replaceAll("{numero}", p.numero).replaceAll("{secretaria}", p.secretariaNome);
 
 // ---------- compositor (resposta / complemento) ----------
 function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "cidadao" | "servidor" }) {
@@ -202,6 +223,7 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const anexos = useAnexos();
+  const modelos = useModelos(perfil?.secretariaId, eu === "servidor");
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
@@ -231,6 +253,7 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
         lote.update(docM("protocolos", p.id), { ultimaMsgPor: "cidadao" });
       }
       await lote.commit();
+      if (eu === "servidor") void sincronizarFicha(p.id);
       setTexto(""); anexos.limpar();
     } catch (err) { setErro(mensagemDeErro(err)); }
     finally { setOcupado(false); }
@@ -240,6 +263,13 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
     <Cartao>
       <form onSubmit={enviar} className="space-y-3">
         <label className="block">
+          {eu === "servidor" && modelos.length > 0 && (
+            <select aria-label="Usar uma resposta-modelo" value="" className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              onChange={(e) => { const m = modelos.find((x) => x.id === e.target.value); if (m) setTexto((t) => (t.trim() ? `${t.trimEnd()}\n\n` : "") + aplicarModelo(m.texto, p)); }}>
+              <option value="">Inserir resposta-modelo…</option>
+              {modelos.map((m) => <option key={m.id} value={m.id}>{m.titulo}</option>)}
+            </select>
+          )}
           <span className="mb-1 block text-sm font-medium">{eu === "servidor" ? "Sua resposta ao cidadão" : p.status === "aberto" ? "Complementar minha mensagem" : "Responder à secretaria"}</span>
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} maxLength={5000} required
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
@@ -277,6 +307,7 @@ function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
     setErro(""); setOcupado(true);
     try {
       await updateDoc(ref, { status: "concluido", concluidoEm: serverTimestamp(), ...(eu === "cidadao" && nota ? { avaliacao: nota } : {}) });
+      void sincronizarFicha(p.id);
     } catch (e) { setErro(mensagemDeErro(e)); } finally { setOcupado(false); }
   }
   async function avaliar() {
@@ -339,6 +370,7 @@ function Prorrogacao({ p }: { p: Protocolo }) {
         criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
       });
       await lote.commit();
+      void sincronizarFicha(p.id);
       setAberto(false);
     } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
   }

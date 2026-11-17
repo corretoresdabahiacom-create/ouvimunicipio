@@ -1,14 +1,18 @@
-import { useEffect, useState, useMemo, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useState, useMemo, type FormEvent } from "react";
 import { collection, doc, getDocs, onSnapshot, query, where, writeBatch, serverTimestamp, Timestamp, deleteDoc } from "firebase/firestore";
-import { Send, Bell, Clock } from "lucide-react";
+import { Send, Bell, Clock, MapPin, LocateFixed } from "lucide-react";
 import { db } from "../lib/firebase";
 import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
-import { TIPOS, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
+import { sincronizarFicha } from "../lib/consulta";
+import { TIPOS, type Coordenada, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
 import { Aviso, Botao, Campo, Cartao, Carregando, Selo, dataBR, rotuloPrazo } from "./ui";
 import { ProtocoloDetalhe, SeletorAnexos, gravarMidias, prepararAnexos, useAnexos, useLimpezaConversas } from "./Conversa";
+
+const SeletorLocal = lazy(() => import("./Mapa").then((m) => ({ default: m.SeletorLocal })));
+const arred = (n: number, casas: number) => Math.round(n * 10 ** casas) / 10 ** casas;
 
 function gerarNumero(): string {
   const alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -27,6 +31,19 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
   const anexos = useAnexos();
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [local, setLocal] = useState<Coordenada | null>(null);
+  const [mapaAberto, setMapaAberto] = useState(false);
+  const [gps, setGps] = useState("");
+
+  function usarGps() {
+    if (!("geolocation" in navigator)) return setGps("Este aparelho não informa a localização. Marque no mapa.");
+    setGps("Buscando sua localização…");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setLocal({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setMapaAberto(true); setGps("Confira o ponto no mapa e toque para ajustar, se precisar."); },
+      (err) => setGps(err.code === 1 ? "Você não permitiu o acesso à localização. Marque o local no mapa." : "Não foi possível obter a localização. Marque o local no mapa."),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  }
 
   useEffect(() => {
     getDocs(query(colM("secretarias"), where("ativa", "==", true)))
@@ -53,10 +70,14 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
       lote.set(docM("protocolos", numero), {
         numero, autorUid: perfil.uid, secretariaId: sec.id, secretariaNome: sec.nome,
         tipo, status: "aberto", ultimaMsgPor: "cidadao", criadoEm: serverTimestamp(),
+        // só a região aproximada (≈100 m) vai no protocolo, para o mapa interno
+        ...(local ? { regiao: { lat: arred(local.lat, 3), lng: arred(local.lng, 3) } } : {}),
       });
       lote.set(docM("protocolos", numero, "mensagens", "m00"), {
         de: "cidadao", autorUid: perfil.uid, assunto: assunto.trim(), texto: mensagem.trim(),
         anexos: preparados.map((p) => p.meta), criadoEm: serverTimestamp(),
+        // o ponto exato fica só na conversa (lida só por você, pela secretaria e pela Ouvidoria)
+        ...(local ? { local: { lat: arred(local.lat, 6), lng: arred(local.lng, 6) } } : {}),
       });
       gravarMidias(lote, numero, preparados);
       lote.set(doc(colM("notificacoes")), {
@@ -65,6 +86,7 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
         criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
       });
       await lote.commit();
+      void sincronizarFicha(numero);
       aoConcluir(numero);
     } catch (err) {
       setErro(mensagemDeErro(err));
@@ -99,6 +121,18 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base" />
           <span className="text-xs text-slate-600">{mensagem.length}/5000</span>
         </label>
+        <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3">
+          <legend className="px-1 text-sm font-medium text-slate-700">Local da ocorrência (opcional)</legend>
+          <p className="text-xs text-slate-600">Ajuda a secretaria a achar o problema (buraco, iluminação, lixo…). O ponto exato fica só na sua conversa; nos mapas internos da prefeitura aparece aproximado.</p>
+          <div className="flex flex-wrap gap-2">
+            <Botao type="button" variante="secundario" onClick={usarGps}><LocateFixed className="size-4" aria-hidden /> Usar minha localização</Botao>
+            <Botao type="button" variante="secundario" onClick={() => setMapaAberto((v) => !v)} aria-expanded={mapaAberto}><MapPin className="size-4" aria-hidden /> {mapaAberto ? "Fechar mapa" : "Marcar no mapa"}</Botao>
+            {local && <Botao type="button" variante="link" onClick={() => { setLocal(null); setGps(""); }}>Remover local</Botao>}
+          </div>
+          {gps && <p className="text-sm text-slate-700" role="status">{gps}</p>}
+          {local && <p className="text-sm text-emerald-800">Local marcado ({local.lat.toFixed(5)}, {local.lng.toFixed(5)}).</p>}
+          {mapaAberto && <Suspense fallback={<Carregando texto="Abrindo o mapa…" />}><SeletorLocal valor={local} onChange={setLocal} /></Suspense>}
+        </fieldset>
         <SeletorAnexos a={anexos} />
         <p className="text-xs text-slate-600">Sua mensagem só pode ser lida por você, pela secretaria escolhida e pela Ouvidoria geral do município (que pode encaminhá-la ao setor certo).</p>
         {erro && <Aviso>{erro}</Aviso>}

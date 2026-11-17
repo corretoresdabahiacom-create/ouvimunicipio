@@ -89,17 +89,21 @@ async function semearContador(uid: string, envios: number, horasAtras: number) {
 }
 
 // Mesmo lote que o app faz ao registrar uma manifestação.
-function novoProtocolo(db: Db, numero: string, o: { uid?: string; secretariaId?: string; secretariaNome?: string; tipo?: string; anexos?: number; partes?: number; contador?: Contador } = {}) {
+function novoProtocolo(db: Db, numero: string, o: { uid?: string; secretariaId?: string; secretariaNome?: string; tipo?: string; anexos?: number; partes?: number; contador?: Contador;
+  regiao?: unknown; local?: unknown; consulta?: Record<string, unknown> } = {}) {
   const uid = o.uid ?? "ana";
   const b = writeBatch(db);
   contar(b, db, uid, numero, o.contador);
   b.set(doc(db, "municipios/a/protocolos", numero), {
     numero, autorUid: uid, secretariaId: o.secretariaId ?? "saude", secretariaNome: o.secretariaNome ?? "Saúde",
     tipo: o.tipo ?? "reclamacao", status: "aberto", ultimaMsgPor: "cidadao", criadoEm: serverTimestamp(),
+    ...(o.regiao !== undefined ? { regiao: o.regiao } : {}),
   });
+  if (o.consulta) b.set(doc(db, "municipios/a/consulta", numero), o.consulta);
   b.set(doc(db, "municipios/a/protocolos", numero, "mensagens", "m00"), {
     de: "cidadao", autorUid: uid, assunto: "Buraco na rua", texto: "Há um buraco grande.",
     anexos: Array.from({ length: o.anexos ?? 0 }, (_, i) => ({ k: `00_${i}`, mime: "image/jpeg", partes: o.partes ?? 1 })), criadoEm: serverTimestamp(),
+    ...(o.local !== undefined ? { local: o.local } : {}),
   });
   for (let a = 0; a < (o.anexos ?? 0); a++)
     for (let p = 0; p < (o.partes ?? 1); p++) {
@@ -920,6 +924,119 @@ describe("17. Isolamento entre municípios e SUPERADMIN", () => {
       const nc = env.authenticatedContext("dono", { email: "dono@x.com", email_verified: false }).firestore();
       await assertFails(setDoc(doc(nc, "municipios/zzz"), { nome: "Z", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
     });
+  });
+});
+
+// =====================================================================
+describe("20. Local da ocorrência (opcional)", () => {
+  const N2 = "OUV-2026-LOCAL001";
+  test("protocolo com região aproximada (3 casas) e local exato na 1ª mensagem", async () => {
+    await assertSucceeds(novoProtocolo(ana(), N2, { regiao: { lat: -14.789, lng: -39.28 }, local: { lat: -14.78912345, lng: -39.2801234 } }).commit());
+  });
+  test("região com precisão alta demais no protocolo é recusada (a exata fica só na conversa)", async () => {
+    await assertFails(novoProtocolo(ana(), N2, { regiao: { lat: -14.78912, lng: -39.28 } }).commit());
+  });
+  test("coordenadas inválidas ou com campos extras são recusadas", async () => {
+    await assertFails(novoProtocolo(ana(), N2, { local: { lat: 95, lng: 0 } }).commit());
+    await assertFails(novoProtocolo(ana(), N2, { local: { lat: -14.7, lng: -39.2, endereco: "Rua X" } }).commit());
+    await assertFails(novoProtocolo(ana(), N2, { regiao: "Centro" }).commit());
+  });
+  test("o local só pode ir na 1ª mensagem", async () => {
+    await semearProtocolo();
+    const db = ana();
+    const b = writeBatch(db);
+    contar(b, db, "ana", `${NUM}/m01`);
+    b.set(doc(db, "municipios/a/protocolos", NUM, "mensagens", "m01"), { de: "cidadao", autorUid: "ana", texto: "Complemento", anexos: [], criadoEm: serverTimestamp(), local: { lat: -14.7, lng: -39.2 } });
+    b.update(doc(db, "municipios/a/protocolos", NUM), { ultimaMsgPor: "cidadao" });
+    await assertFails(b.commit());
+  });
+});
+
+// =====================================================================
+describe("21. Consulta pública do protocolo pelo número", () => {
+  const N3 = "OUV-2026-CONSULT1";
+  const ficha = (extra: Record<string, unknown> = {}) => ({ status: "aberto", secretariaNome: "Saúde", criadoEm: serverTimestamp(), ...extra });
+
+  test("o cidadão publica a ficha junto com o protocolo; qualquer pessoa consulta pelo número", async () => {
+    await assertSucceeds(novoProtocolo(ana(), N3, { consulta: ficha() }).commit());
+    await assertSucceeds(getDoc(doc(anonimo(), "municipios/a/consulta", N3)));
+  });
+  test("ninguém lista as fichas (só quem tem o número consulta)", async () => {
+    await novoProtocolo(ana(), N3, { consulta: ficha() }).commit();
+    await assertFails(getDocs(collection(anonimo(), "municipios/a/consulta")));
+    await assertFails(getDocs(collection(ana(), "municipios/a/consulta")));
+  });
+  test("ficha diferente do protocolo é recusada (situação, secretaria ou campos extras)", async () => {
+    await assertFails(novoProtocolo(ana(), N3, { consulta: ficha({ status: "concluido" }) }).commit());
+    await assertFails(novoProtocolo(ana(), N3, { consulta: ficha({ secretariaNome: "Obras" }) }).commit());
+    await assertFails(novoProtocolo(ana(), N3, { consulta: ficha({ tipo: "denuncia" }) }).commit());
+  });
+  test("não existe ficha de protocolo que não existe; visitante não grava", async () => {
+    await assertFails(setDoc(doc(ana(), "municipios/a/consulta", "OUV-2026-NAOEXIST"), ficha()));
+    await semearProtocolo();
+    await assertFails(setDoc(doc(anonimo(), "municipios/a/consulta", NUM), ficha()));
+  });
+  test("a secretaria atualiza a ficha ao responder; ficha desatualizada no mesmo lote é recusada", async () => {
+    await semearProtocolo();
+    const criadoEm = (await getDoc(doc(sam(), "municipios/a/protocolos", NUM))).get("criadoEm");
+    const db = sam();
+    const b = respostaServidor(db);
+    b.set(doc(db, "municipios/a/consulta", NUM), { status: "respondido", secretariaNome: "Saúde", criadoEm, respondidoEm: serverTimestamp() });
+    await assertSucceeds(b.commit());
+
+    await env.clearFirestore(); await semearBase(); await semearProtocolo();
+    const criadoEm2 = (await getDoc(doc(sam(), "municipios/a/protocolos", NUM))).get("criadoEm");
+    const db2 = sam();
+    const b2 = respostaServidor(db2);
+    b2.set(doc(db2, "municipios/a/consulta", NUM), { status: "aberto", secretariaNome: "Saúde", criadoEm: criadoEm2 });
+    await assertFails(b2.commit());
+  });
+  test("cópia fiel gravada depois, em separado, também é aceita (é assim que o app sincroniza)", async () => {
+    await semearProtocolo(respondido);
+    const p = (await getDoc(doc(ana(), "municipios/a/protocolos", NUM))).data()!;
+    await assertSucceeds(setDoc(doc(ana(), "municipios/a/consulta", NUM),
+      { status: p.status, secretariaNome: p.secretariaNome, criadoEm: p.criadoEm, respondidoEm: p.respondidoEm }));
+  });
+  test("ficha não pode ser apagada", async () => {
+    await novoProtocolo(ana(), N3, { consulta: ficha() }).commit();
+    await assertFails(deleteDoc(doc(ana(), "municipios/a/consulta", N3)));
+  });
+});
+
+// =====================================================================
+describe("22. Respostas-modelo da secretaria", () => {
+  const ari = () => env.authenticatedContext("ari", { email: "ari@x.com", email_verified: true }).firestore(); // assessor da Saúde
+  const modelo = (extra: Record<string, unknown> = {}) => ({ secretariaId: "saude", titulo: "Agendamento", texto: "Olá! Seu pedido foi registrado.", atualizadoEm: serverTimestamp(), ...extra });
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (c) => {
+      const db = c.firestore();
+      await setDoc(doc(db, "municipios/a/users/ari"), perfil("Ari", "ari@x.com"));
+      await setDoc(doc(db, "municipios/a/equipe/ari@x.com"), { nome: "Ari", papel: "assessor", secretariaId: "saude", ativo: true });
+    });
+  });
+  test("o secretário cria, edita e apaga modelos da própria secretaria", async () => {
+    await assertSucceeds(setDoc(doc(sam(), "municipios/a/modelos/m1"), modelo()));
+    await assertSucceeds(setDoc(doc(sam(), "municipios/a/modelos/m1"), modelo({ texto: "Novo texto" })));
+    await assertSucceeds(deleteDoc(doc(sam(), "municipios/a/modelos/m1")));
+  });
+  test("o assessor usa (lê) os modelos, mas não edita", async () => {
+    await setDoc(doc(sam(), "municipios/a/modelos/m1"), modelo());
+    await assertSucceeds(getDocs(query(collection(ari(), "municipios/a/modelos"), where("secretariaId", "==", "saude"))));
+    await assertFails(setDoc(doc(ari(), "municipios/a/modelos/m2"), modelo()));
+    await assertFails(deleteDoc(doc(ari(), "municipios/a/modelos/m1")));
+  });
+  test("outra secretaria, cidadão, ouvidor e admin não leem nem gravam", async () => {
+    await setDoc(doc(sam(), "municipios/a/modelos/m1"), modelo());
+    for (const quem of [sol(), ana(), olga(), adm()]) await assertFails(getDoc(doc(quem, "municipios/a/modelos/m1")));
+    await assertFails(setDoc(doc(sol(), "municipios/a/modelos/m2"), modelo()));
+    await assertFails(setDoc(doc(sol(), "municipios/a/modelos/m1"), modelo({ secretariaId: "obras" })));
+    await assertFails(deleteDoc(doc(sol(), "municipios/a/modelos/m1")));
+  });
+  test("campos inválidos são recusados", async () => {
+    await assertFails(setDoc(doc(sam(), "municipios/a/modelos/m1"), modelo({ titulo: "ab" })));
+    await assertFails(setDoc(doc(sam(), "municipios/a/modelos/m1"), modelo({ texto: "" })));
+    await assertFails(setDoc(doc(sam(), "municipios/a/modelos/m1"), modelo({ extra: 1 })));
+    await assertFails(setDoc(doc(sam(), "municipios/a/modelos/m1"), modelo({ atualizadoEm: Timestamp.fromMillis(1) })));
   });
 });
 

@@ -10,6 +10,8 @@ import { TIPOS, type Protocolo, type Secretaria } from "../lib/types";
 import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, rotuloPrazo } from "./ui";
 import { ProtocoloDetalhe } from "./Conversa";
 import { RelatorioGestao } from "./Relatorio";
+import { VistaMapa } from "./VistaMapa";
+import { sincronizarFicha } from "../lib/consulta";
 
 const LIMITE_LEITURA = 1000; // protege a cota gratuita do Firestore
 
@@ -57,6 +59,7 @@ function Acoes({ p, secretarias }: { p: Protocolo; secretarias: Secretaria[] }) 
         por: perfil.nome, motivo: motivo.trim(), criadoEm: serverTimestamp(),
       });
       await lote.commit();
+      void sincronizarFicha(p.id);
       setPara(""); setMotivo(""); setOk(`Encaminhado para ${dest.nome}.`);
     } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
   }
@@ -112,6 +115,7 @@ export function PainelOuvidor() {
   const [pub, setPub] = useState<{ ocupado: boolean; msg: string; erro: string }>({ ocupado: false, msg: "", erro: "" });
   const automatico = useRef(false);
   const [relatorio, setRelatorio] = useState(false);
+  const [verMapa, setVerMapa] = useState(false);
 
   async function publicar(l: Protocolo[], manual: boolean) {
     if (!perfil) return;
@@ -150,6 +154,9 @@ export function PainelOuvidor() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Ouvidoria geral</h2>
         <div className="flex flex-wrap gap-2">
+          <Botao variante="secundario" onClick={() => setVerMapa((v) => !v)} aria-expanded={verMapa}>
+            {verMapa ? "Ver lista" : "Ver no mapa"}
+          </Botao>
           <Botao variante="secundario" onClick={() => setRelatorio((v) => !v)} aria-expanded={relatorio}>
             <FileText className="size-4" aria-hidden /> Relatório de gestão
           </Botao>
@@ -183,8 +190,9 @@ export function PainelOuvidor() {
           <option value="">Qualquer prazo</option><option value="vencido">Vencidos</option><option value="critico">Vencem em até 5 dias</option></select>
       </Cartao>
       <p className="text-sm text-slate-700">{filtrados.length} protocolo{filtrados.length === 1 ? "" : "s"}</p>
-      {filtrados.length === 0 && <Cartao><p className="text-slate-600">Nenhum protocolo com esses filtros.</p></Cartao>}
-      {filtrados.slice(0, 100).map((p) => {
+      {verMapa && <VistaMapa lista={filtrados} abrir={setSel} />}
+      {!verMapa && filtrados.length === 0 && <Cartao><p className="text-slate-600">Nenhum protocolo com esses filtros.</p></Cartao>}
+      {!verMapa && filtrados.slice(0, 100).map((p) => {
         const r = p.status === "aberto" ? rotuloPrazo(p) : null;
         return (
           <button key={p.id} onClick={() => setSel(p.id)} className="block w-full rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-brand">
@@ -195,7 +203,7 @@ export function PainelOuvidor() {
           </button>
         );
       })}
-      {filtrados.length > 100 && <Aviso tipo="info">Mostrando 100 de {filtrados.length}. Refine os filtros.</Aviso>}
+      {!verMapa && filtrados.length > 100 && <Aviso tipo="info">Mostrando 100 de {filtrados.length}. Refine os filtros.</Aviso>}
     </div>
   );
 }

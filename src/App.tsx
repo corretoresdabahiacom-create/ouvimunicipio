@@ -16,6 +16,7 @@ import { BotaoLibras, Cabecalho, Carrossel } from "./components/Marca";
 import { SiteProvider } from "./lib/useConfig";
 import { MunicipioProvider, Raiz0, rotaAtual } from "./lib/municipio";
 const PaginaTransparencia = lazy(() => import("./components/Transparencia").then((m) => ({ default: m.PaginaTransparencia })));
+const PaginaConsulta = lazy(() => import("./components/Consulta").then((m) => ({ default: m.PaginaConsulta })));
 const PainelSuperAdmin = lazy(() => import("./components/SuperAdmin").then((m) => ({ default: m.PainelSuperAdmin })));
 import { Aviso, Botao, Carregando, Cartao } from "./components/ui";
 
@@ -142,9 +143,9 @@ export default function App() {
   if (rota.tipo === "raiz") return <Raiz0 />;
   if (rota.tipo === "super") return <AuthProvider><RaizSuper /></AuthProvider>;
   // página pública (sem login): números da Ouvidoria, se o município publicar
-  if (rota.sub === "transparencia") return (
+  if (rota.sub === "transparencia" || rota.sub === "consulta") return (
     <MunicipioProvider slug={rota.slug}>
-      <SiteProvider><Suspense fallback={<Carregando />}><PaginaTransparencia /></Suspense></SiteProvider>
+      <SiteProvider><Suspense fallback={<Carregando />}>{rota.sub === "consulta" ? <PaginaConsulta /> : <PaginaTransparencia />}</Suspense></SiteProvider>
     </MunicipioProvider>
   );
   return (

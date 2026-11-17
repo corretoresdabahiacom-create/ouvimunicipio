@@ -5,8 +5,10 @@ import { TIPOS, type Protocolo } from "../lib/types";
 import { Aviso, Carregando, Cartao, Selo, dataBR, nivelPrazo, rotuloPrazo } from "./ui";
 import { usarProtocolos } from "./Cidadao";
 import { ProtocoloDetalhe, useLimpezaConversas } from "./Conversa";
+import { VistaMapa } from "./VistaMapa";
+import { GerirModelos } from "./Modelos";
 
-type Aba = "aguardando" | "vencidas" | "respondidas" | "concluidas";
+type Aba = "aguardando" | "vencidas" | "respondidas" | "concluidas" | "mapa" | "modelos";
 
 // "Aguardando": sem 1ª resposta, ou o cidadão escreveu depois da última resposta.
 const aguardando = (p: Protocolo) => p.status === "aberto" || (p.status === "respondido" && p.ultimaMsgPor === "cidadao");
@@ -24,13 +26,13 @@ export function PainelSecretaria() {
   const atual = sel ? lista.find((p) => p.id === sel) : null;
   if (atual) return <ProtocoloDetalhe p={atual} voltar={() => setSel(null)} eu="servidor" />;
 
-  const porAba: Record<Aba, Protocolo[]> = {
+  const porAba: Record<Exclude<Aba, "mapa" | "modelos">, Protocolo[]> = {
     aguardando: lista.filter(aguardando),
     vencidas: lista.filter((p) => p.status === "aberto" && nivelPrazo(p) === "vencido"),
     respondidas: lista.filter((p) => p.status === "respondido" && !aguardando(p)),
     concluidas: lista.filter((p) => p.status === "concluido"),
   };
-  const filtrados = [...porAba[aba]].sort((a, b) => aba === "aguardando" || aba === "vencidas"
+  const filtrados = aba === "mapa" || aba === "modelos" ? [] : [...porAba[aba]].sort((a, b) => aba === "aguardando" || aba === "vencidas"
     ? (a.criadoEm?.toMillis?.() ?? 0) - (b.criadoEm?.toMillis?.() ?? 0)
     : (b.criadoEm?.toMillis?.() ?? 0) - (a.criadoEm?.toMillis?.() ?? 0));
 
@@ -54,7 +56,7 @@ export function PainelSecretaria() {
         </div>
       )}
       <div role="tablist" className="flex gap-2 overflow-x-auto">
-        {([["aguardando", `Aguardando (${porAba.aguardando.length})`], ["vencidas", `Vencidas (${porAba.vencidas.length})`], ["respondidas", "Respondidas"], ["concluidas", "Concluídas"]] as const).map(([a, rotulo]) => (
+        {([["aguardando", `Aguardando (${porAba.aguardando.length})`], ["vencidas", `Vencidas (${porAba.vencidas.length})`], ["respondidas", "Respondidas"], ["concluidas", "Concluídas"], ["mapa", "Mapa"], ["modelos", "Respostas-modelo"]] as const).map(([a, rotulo]) => (
           <button key={a} role="tab" aria-selected={aba === a} onClick={() => setAba(a)}
             className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${aba === a ? "bg-brand text-white" : "border bg-white text-slate-700"}`}>
             {rotulo}
@@ -62,7 +64,9 @@ export function PainelSecretaria() {
         ))}
       </div>
       {erro && <Aviso>{erro}</Aviso>}
-      {filtrados.length === 0 && <Cartao><p className="text-slate-600">Nada por aqui.</p></Cartao>}
+      {aba === "mapa" && <VistaMapa lista={lista} abrir={setSel} />}
+      {aba === "modelos" && <GerirModelos secretariaId={perfil.secretariaId} podeEditar={perfil.papel === "secretario"} />}
+      {aba !== "mapa" && aba !== "modelos" && filtrados.length === 0 && <Cartao><p className="text-slate-600">Nada por aqui.</p></Cartao>}
       {filtrados.map((p) => {
         const r = p.status === "aberto" ? rotuloPrazo(p) : null;
         return (
