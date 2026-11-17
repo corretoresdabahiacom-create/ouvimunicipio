@@ -72,3 +72,12 @@ Rodam no GitHub Actions (`.github/workflows/alertas-prazo.yml`), de segunda a se
 - Local da ocorrência: opcional para o cidadão (GPS ou toque no mapa). Mapa nas abas da secretaria e do ouvidor.
 - Consulta sem login: `/{municipio}/consulta` (link na tela de login).
 - Respostas-modelo: aba "Respostas-modelo" do painel da secretaria (o secretário edita; a equipe usa).
+
+## Painel do superadmin: editar, suspender e excluir município
+- **Editar:** muda o nome do município. O endereço (`/{municipio}`) não muda, porque links e o app instalado dependem dele.
+- **Suspender/Reativar:** pausa temporária. Ninguém cria contas nem manifestações; os dados ficam intactos.
+- **Excluir:** definitivo pelo painel (pede para digitar o endereço). O município some da lista, ninguém mais acessa e o
+  endereço nunca mais pode ser usado (assim um município novo não herda os dados do antigo). Os dados continuam guardados.
+- **Apagar os dados de vez** (depois de excluir): com a chave da conta de serviço, na pasta `scripts`:
+  `node apagar-municipio.mjs alagoinhas` (mostra quantos documentos) e
+  `node apagar-municipio.mjs alagoinhas --confirmar alagoinhas` (faz backup `.ndjson` e apaga). Os logins não são apagados.

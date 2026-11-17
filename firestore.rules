@@ -28,11 +28,18 @@ service cloud.firestore {
         && request.resource.data.ativo is bool
         && request.resource.data.plano in ['basico', 'padrao', 'completo']
         && request.resource.data.criadoEm == request.time;
+      // editar nome/plano, suspender/reativar, ou EXCLUIR. Excluir é definitivo pelo app: o município fica desativado,
+      // some da lista e o endereço nunca mais pode ser reusado (senão um novo município herdaria os dados do antigo).
+      // Os dados só são apagados de vez pelo script scripts/apagar-municipio.mjs.
       allow update: if superadmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'ativo', 'plano'])
+        && resource.data.get('excluido', false) == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'ativo', 'plano', 'excluido', 'excluidoEm'])
         && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
         && request.resource.data.ativo is bool
-        && request.resource.data.plano in ['basico', 'padrao', 'completo'];
+        && request.resource.data.plano in ['basico', 'padrao', 'completo']
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['excluido', 'excluidoEm'])
+            || (request.resource.data.excluido == true && request.resource.data.ativo == false
+                && request.resource.data.excluidoEm == request.time));
       allow delete: if false;
 
     // ---------- helpers ----------

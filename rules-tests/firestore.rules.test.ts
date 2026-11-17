@@ -895,6 +895,20 @@ describe("17. Isolamento entre municípios e SUPERADMIN", () => {
       await assertFails(updateDoc(doc(adm(), "municipios/a"), { ativo: false }));
       await assertFails(deleteDoc(doc(dono(), "municipios/a")));
     });
+    test("edita o nome do município", async () => {
+      await assertSucceeds(updateDoc(doc(dono(), "municipios/a"), { nome: "Prefeitura Municipal de A" }));
+      await assertFails(updateDoc(doc(dono(), "municipios/a"), { nome: "X" }));
+    });
+    test("exclui o município: fica desativado e não pode mais ser alterado nem recriado", async () => {
+      await assertFails(updateDoc(doc(dono(), "municipios/a"), { excluido: true, ativo: true, excluidoEm: serverTimestamp() }));
+      await assertFails(updateDoc(doc(dono(), "municipios/a"), { excluido: true, ativo: false, excluidoEm: Timestamp.fromMillis(1) }));
+      await assertFails(updateDoc(doc(adm(), "municipios/a"), { excluido: true, ativo: false, excluidoEm: serverTimestamp() }));
+      await assertSucceeds(updateDoc(doc(dono(), "municipios/a"), { excluido: true, ativo: false, excluidoEm: serverTimestamp() }));
+      await assertFails(updateDoc(doc(dono(), "municipios/a"), { ativo: true }));
+      await assertFails(updateDoc(doc(dono(), "municipios/a"), { excluido: false }));
+      await assertFails(setDoc(doc(dono(), "municipios/a"), { nome: "Novo A", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
+      await assertFails(deleteDoc(doc(dono(), "municipios/a")));
+    });
     test("lista os municípios; o município (nome/situação) é público para abrir a tela de login", async () => {
       await assertSucceeds(getDocs(collection(dono(), "municipios")));
       await assertFails(getDocs(collection(adm(), "municipios")));

@@ -48,7 +48,7 @@ export function MunicipioProvider({ slug, children }: { slug: string; children: 
     getDoc(doc(db, "municipios", slug))
       .then((s) => {
         if (!vivo) return;
-        setM(s.exists() ? { id: slug, nome: String(s.get("nome")), ativo: s.get("ativo") === true, plano: String(s.get("plano") ?? "basico") } : null);
+        setM(s.exists() && s.get("excluido") !== true ? { id: slug, nome: String(s.get("nome")), ativo: s.get("ativo") === true, plano: String(s.get("plano") ?? "basico") } : null);
         try { if (s.exists()) localStorage.setItem("municipio", slug); } catch { /* ignore */ }
       })
       .catch(() => vivo && setM(null));
