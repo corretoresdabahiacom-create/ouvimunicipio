@@ -18,12 +18,15 @@ service cloud.firestore {
     }
 
     // ---------- municípios ----------
+    function ufOk(v) { return v in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']; }
+    function cidadeOk(v) { return v is string && v.size() >= 2 && v.size() <= 80; }
     // O ID é o "slug" do endereço (ex.: /itabuna). Tudo de um município fica DENTRO do caminho dele.
     match /municipios/{mid} {
       allow get: if true;           // nome e situação (ativo) aparecem antes do login
       allow list: if superadmin();
       allow create: if superadmin() && mid.matches('[a-z0-9-]{2,40}')
-        && request.resource.data.keys().hasOnly(['nome', 'ativo', 'plano', 'criadoEm'])
+        && request.resource.data.keys().hasOnly(['nome', 'cidade', 'uf', 'ativo', 'plano', 'criadoEm'])
+        && cidadeOk(request.resource.data.cidade) && ufOk(request.resource.data.uf)
         && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
         && request.resource.data.ativo is bool
         && request.resource.data.plano in ['basico', 'padrao', 'completo']
@@ -33,7 +36,9 @@ service cloud.firestore {
       // Os dados só são apagados de vez pelo script scripts/apagar-municipio.mjs.
       allow update: if superadmin()
         && resource.data.get('excluido', false) == false
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'ativo', 'plano', 'excluido', 'excluidoEm'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'cidade', 'uf', 'ativo', 'plano', 'excluido', 'excluidoEm'])
+        && (!('cidade' in request.resource.data) || cidadeOk(request.resource.data.cidade))
+        && (!('uf' in request.resource.data) || ufOk(request.resource.data.uf))
         && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
         && request.resource.data.ativo is bool
         && request.resource.data.plano in ['basico', 'padrao', 'completo']

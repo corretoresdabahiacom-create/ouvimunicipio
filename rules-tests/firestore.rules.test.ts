@@ -880,20 +880,27 @@ describe("17. Isolamento entre municípios e SUPERADMIN", () => {
 
   describe("SUPERADMIN", () => {
     test("cria município com slug válido; a pessoa comum não", async () => {
-      await assertSucceeds(setDoc(doc(dono(), "municipios/novo-mun"), { nome: "Novo", ativo: true, plano: "padrao", criadoEm: serverTimestamp() }));
-      await assertFails(setDoc(doc(adm(), "municipios/outro"), { nome: "Outro", ativo: true, plano: "padrao", criadoEm: serverTimestamp() }));
-      await assertFails(setDoc(doc(ana(), "municipios/outro"), { nome: "Outro", ativo: true, plano: "padrao", criadoEm: serverTimestamp() }));
+      await assertSucceeds(setDoc(doc(dono(), "municipios/novo-mun"), { nome: "Novo", cidade: "Cidade", uf: "BA", ativo: true, plano: "padrao", criadoEm: serverTimestamp() }));
+      await assertFails(setDoc(doc(adm(), "municipios/outro"), { nome: "Outro", cidade: "Cidade", uf: "BA", ativo: true, plano: "padrao", criadoEm: serverTimestamp() }));
+      await assertFails(setDoc(doc(ana(), "municipios/outro"), { nome: "Outro", cidade: "Cidade", uf: "BA", ativo: true, plano: "padrao", criadoEm: serverTimestamp() }));
     });
     test("slug inválido, plano inválido e campos extras são recusados", async () => {
-      await assertFails(setDoc(doc(dono(), "municipios/Maiuscula"), { nome: "X", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
-      await assertFails(setDoc(doc(dono(), "municipios/ok1"), { nome: "X", ativo: true, plano: "ouro", criadoEm: serverTimestamp() }));
-      await assertFails(setDoc(doc(dono(), "municipios/ok2"), { nome: "X", ativo: true, plano: "basico", criadoEm: serverTimestamp(), extra: 1 }));
+      await assertFails(setDoc(doc(dono(), "municipios/Maiuscula"), { nome: "X", cidade: "Cidade", uf: "BA", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
+      await assertFails(setDoc(doc(dono(), "municipios/ok1"), { nome: "X", cidade: "Cidade", uf: "BA", ativo: true, plano: "ouro", criadoEm: serverTimestamp() }));
+      await assertFails(setDoc(doc(dono(), "municipios/ok2"), { nome: "X", cidade: "Cidade", uf: "BA", ativo: true, plano: "basico", criadoEm: serverTimestamp(), extra: 1 }));
     });
     test("suspende e reativa o município e muda o plano; não apaga", async () => {
       await assertSucceeds(updateDoc(doc(dono(), "municipios/a"), { ativo: false }));
       await assertSucceeds(updateDoc(doc(dono(), "municipios/a"), { ativo: true, plano: "completo" }));
       await assertFails(updateDoc(doc(adm(), "municipios/a"), { ativo: false }));
       await assertFails(deleteDoc(doc(dono(), "municipios/a")));
+    });
+    test("cidade e estado são obrigatórios ao criar e validados ao editar", async () => {
+      await assertFails(setDoc(doc(dono(), "municipios/semuf"), { nome: "Prefeitura X", cidade: "X Grande", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
+      await assertFails(setDoc(doc(dono(), "municipios/ufruim"), { nome: "Prefeitura X", cidade: "X Grande", uf: "XX", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
+      await assertSucceeds(updateDoc(doc(dono(), "municipios/a"), { cidade: "Alagoinhas", uf: "BA" }));
+      await assertFails(updateDoc(doc(dono(), "municipios/a"), { uf: "Bahia" }));
+      await assertFails(updateDoc(doc(adm(), "municipios/a"), { cidade: "Outra" }));
     });
     test("edita o nome do município", async () => {
       await assertSucceeds(updateDoc(doc(dono(), "municipios/a"), { nome: "Prefeitura Municipal de A" }));
@@ -906,7 +913,7 @@ describe("17. Isolamento entre municípios e SUPERADMIN", () => {
       await assertSucceeds(updateDoc(doc(dono(), "municipios/a"), { excluido: true, ativo: false, excluidoEm: serverTimestamp() }));
       await assertFails(updateDoc(doc(dono(), "municipios/a"), { ativo: true }));
       await assertFails(updateDoc(doc(dono(), "municipios/a"), { excluido: false }));
-      await assertFails(setDoc(doc(dono(), "municipios/a"), { nome: "Novo A", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
+      await assertFails(setDoc(doc(dono(), "municipios/a"), { nome: "Novo A", cidade: "Cidade", uf: "BA", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
       await assertFails(deleteDoc(doc(dono(), "municipios/a")));
     });
     test("lista os municípios; o município (nome/situação) é público para abrir a tela de login", async () => {
@@ -936,7 +943,7 @@ describe("17. Isolamento entre municípios e SUPERADMIN", () => {
     });
     test("SUPERADMIN sem e-mail confirmado não tem poderes", async () => {
       const nc = env.authenticatedContext("dono", { email: "dono@x.com", email_verified: false }).firestore();
-      await assertFails(setDoc(doc(nc, "municipios/zzz"), { nome: "Z", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
+      await assertFails(setDoc(doc(nc, "municipios/zzz"), { nome: "Z", cidade: "Cidade", uf: "BA", ativo: true, plano: "basico", criadoEm: serverTimestamp() }));
     });
   });
 });

@@ -16,7 +16,7 @@ Tudo de um município fica em `municipios/{municipio}/…` no Firestore; o ender
 1. Em **Firestore → Dados**, crie a coleção `superadmins` com um documento cujo ID é **o seu e-mail em minúsculas**
    (um campo qualquer, por exemplo `ativo = true`). Ninguém consegue se tornar superadmin pelo app.
 2. Abra `https://ouvimunicipio.pages.dev/superadmin`, entre com esse e-mail (ou crie a conta e confirme o e-mail).
-3. Crie o município (endereço só com letras minúsculas, números e hífen) e cadastre o administrador dele
+3. Crie o município: **cidade**, **estado (UF)**, nome oficial (preenchido sozinho) e endereço (gerado da cidade; pode colar o link) e cadastre o administrador dele
    (use **outro e-mail**: o superadmin não pode se cadastrar como administrador).
 
 ## 3. Administrador e equipe do município
@@ -74,7 +74,7 @@ Rodam no GitHub Actions (`.github/workflows/alertas-prazo.yml`), de segunda a se
 - Respostas-modelo: aba "Respostas-modelo" do painel da secretaria (o secretário edita; a equipe usa).
 
 ## Painel do superadmin: editar, suspender e excluir município
-- **Editar:** muda o nome do município. O endereço (`/{municipio}`) não muda, porque links e o app instalado dependem dele.
+- **Editar:** muda o nome oficial, a cidade e o estado. O endereço (`/{municipio}`) não muda, porque links e o app instalado dependem dele.
 - **Suspender/Reativar:** pausa temporária. Ninguém cria contas nem manifestações; os dados ficam intactos.
 - **Excluir:** definitivo pelo painel (pede para digitar o endereço). O município some da lista, ninguém mais acessa e o
   endereço nunca mais pode ser usado (assim um município novo não herda os dados do antigo). Os dados continuam guardados.
