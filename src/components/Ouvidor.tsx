@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
-import { AlertTriangle, BellRing, RefreshCw, Search, Send } from "lucide-react";
+import { AlertTriangle, BellRing, FileText, RefreshCw, Search, Send } from "lucide-react";
 import { db } from "../lib/firebase";
 import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
@@ -9,6 +9,7 @@ import { publicarEstatisticas } from "../lib/estatisticas";
 import { TIPOS, type Protocolo, type Secretaria } from "../lib/types";
 import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, rotuloPrazo } from "./ui";
 import { ProtocoloDetalhe } from "./Conversa";
+import { RelatorioGestao } from "./Relatorio";
 
 const LIMITE_LEITURA = 1000; // protege a cota gratuita do Firestore
 
@@ -110,6 +111,7 @@ export function PainelOuvidor() {
   const [fPrazo, setFPrazo] = useState("");
   const [pub, setPub] = useState<{ ocupado: boolean; msg: string; erro: string }>({ ocupado: false, msg: "", erro: "" });
   const automatico = useRef(false);
+  const [relatorio, setRelatorio] = useState(false);
 
   async function publicar(l: Protocolo[], manual: boolean) {
     if (!perfil) return;
@@ -147,10 +149,16 @@ export function PainelOuvidor() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Ouvidoria geral</h2>
-        <Botao variante="secundario" onClick={() => publicar(lista, true)} carregando={pub.ocupado}>
-          <RefreshCw className="size-4" aria-hidden /> Atualizar painel do prefeito
-        </Botao>
+        <div className="flex flex-wrap gap-2">
+          <Botao variante="secundario" onClick={() => setRelatorio((v) => !v)} aria-expanded={relatorio}>
+            <FileText className="size-4" aria-hidden /> Relatório de gestão
+          </Botao>
+          <Botao variante="secundario" onClick={() => publicar(lista, true)} carregando={pub.ocupado}>
+            <RefreshCw className="size-4" aria-hidden /> Atualizar painel do prefeito
+          </Botao>
+        </div>
       </div>
+      {relatorio && <RelatorioGestao lista={lista} limiteAtingido={lista.length >= LIMITE_LEITURA} responsavel={perfil?.nome ?? ""} />}
       {pub.msg && <Aviso tipo="ok">{pub.msg}</Aviso>}
       {pub.erro && <Aviso>{pub.erro}</Aviso>}
       {erro && <Aviso>{erro}</Aviso>}

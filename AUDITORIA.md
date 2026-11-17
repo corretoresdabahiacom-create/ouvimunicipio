@@ -131,3 +131,14 @@ feriados (a regulamentação municipal pode definir de outro modo).
 
 Conferido e **sem problema**: avisos "recebido" só podem ser criados pelo autor do protocolo; envio de e-mail em massa
 em blocos de 100 (máx. 500) é coerente com a função; isolamento entre municípios coberto por testes.
+
+## Inovações implementadas — 17/11/2026
+
+| Item | O que faz | Testado |
+|---|---|---|
+| **Painel público de transparência** (`/{município}/transparencia`) | Sem login, mostra os mesmos números do painel do prefeito (totais, prazos, notas, por secretaria). **Opcional:** só aparece se o administrador marcar "Publicar o painel de transparência" em Aparência. Link na tela de login quando ligado | Regras: 4 testes novos (total 139), **ainda não executados** (rodam no GitHub). Tela: não testada aqui (sem acesso ao Firebase) |
+| **Relatório de gestão em PDF** (painel da Ouvidoria) | Por ano ou mês: total, situação, motivos (tipo e secretaria), % no prazo, tempo médio, vencidas, prorrogadas, encaminhadas, satisfação, evolução mensal, mais campos de **análise dos pontos recorrentes** e **providências** (conteúdo pedido pela Lei 13.460/2017). Sem nomes nem conversas | Gerado no Chromium com dados fictícios: números conferidos à mão e textos escapados |
+| **VLibras** (botão "Libras") | Widget oficial do Governo Federal que traduz a tela para Libras. Baixado só quando a pessoa clica. A CSP libera apenas `vlibras.gov.br` (e `wasm-unsafe-eval`, exigido pelo avatar) | **Não testado** (o site do VLibras é bloqueado neste ambiente). Conferido só que, se não carregar, aparece "Libras indisponível" sem quebrar a tela |
+
+Observação: o resumo publicado guarda o nome de quem o gerou (`geradoPor`, um servidor). Com a transparência ligada, esse campo
+também fica legível publicamente (a tela não o mostra).

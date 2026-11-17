@@ -12,9 +12,10 @@ const Instalar = lazy(() => import("./components/Instalar").then((m) => ({ defau
 import { Perfil } from "./components/Perfil";
 import { AceiteTermos } from "./components/Legal";
 import { VERSAO_TERMOS } from "./lib/types";
-import { Cabecalho, Carrossel } from "./components/Marca";
+import { BotaoLibras, Cabecalho, Carrossel } from "./components/Marca";
 import { SiteProvider } from "./lib/useConfig";
 import { MunicipioProvider, Raiz0, rotaAtual } from "./lib/municipio";
+const PaginaTransparencia = lazy(() => import("./components/Transparencia").then((m) => ({ default: m.PaginaTransparencia })));
 const PainelSuperAdmin = lazy(() => import("./components/SuperAdmin").then((m) => ({ default: m.PainelSuperAdmin })));
 import { Aviso, Botao, Carregando, Cartao } from "./components/ui";
 
@@ -51,6 +52,7 @@ function Shell() {
       <header className="flex items-center justify-between bg-brand px-4 py-3 text-white">
         <h1 className="min-w-0"><Cabecalho /></h1>
         <div className="flex items-center gap-2 text-sm">
+          <BotaoLibras claro />
           <span className="hidden max-w-40 truncate sm:inline">{perfil?.nome || perfil?.email}</span>
           <button onClick={sair} aria-label="Sair" className="rounded p-2 hover:bg-white/10"><LogOut className="size-5" /></button>
         </div>
@@ -139,6 +141,12 @@ export default function App() {
   const rota = rotaAtual();
   if (rota.tipo === "raiz") return <Raiz0 />;
   if (rota.tipo === "super") return <AuthProvider><RaizSuper /></AuthProvider>;
+  // página pública (sem login): números da Ouvidoria, se o município publicar
+  if (rota.sub === "transparencia") return (
+    <MunicipioProvider slug={rota.slug}>
+      <SiteProvider><Suspense fallback={<Carregando />}><PaginaTransparencia /></Suspense></SiteProvider>
+    </MunicipioProvider>
+  );
   return (
     <MunicipioProvider slug={rota.slug}>
       <SiteProvider><AuthProvider><Raiz /></AuthProvider></SiteProvider>

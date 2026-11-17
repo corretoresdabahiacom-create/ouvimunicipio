@@ -52,7 +52,8 @@ Remover ou desativar o cadastro tira o acesso na hora.
   Sem Cloud Functions o app não apaga o *login*: para liberar um e-mail, remova-o em Authentication → Usuários.
 - **Mensagens:** aviso no app (2 a 30 dias) e/ou e-mail (até 500 pessoas por envio, em blocos de 100).
 - **Aparência:** nome, logomarca e cor (contraste mínimo 4,5 com texto branco). **Publicidade:** até 10 anúncios no carrossel.
-- **Relatórios:** indicadores e CSV.
+- **Relatórios:** indicadores e CSV. O **relatório de gestão em PDF** fica no painel do ouvidor geral.
+- **Transparência:** em Aparência, "Publicar o painel de transparência" abre `/{municipio}/transparencia` ao público (só números).
 
 ## Termos e LGPD
 Textos-modelo em `src/components/Legal.tsx` (revise com a assessoria jurídica). Versão em `VERSAO_TERMOS`

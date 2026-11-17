@@ -5,7 +5,7 @@ import {
 } from "firebase/firestore";
 import { ArrowDown, ArrowUp, Ban, ImagePlus, Mail, Pencil, Trash2, Undo2 } from "lucide-react";
 import { db } from "../lib/firebase";
-import { colM, docM } from "../lib/municipio";
+import { colM, docM, idMunicipio } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { imagemParaDataUrl } from "../lib/media";
@@ -27,6 +27,7 @@ export function Aparencia({ auditar }: { auditar: Auditar }) {
   const [cor, setCor] = useState(site.cor);
   const [logo, setLogo] = useState(site.logo);
   const [contato, setContato] = useState(site.contato);
+  const [transparencia, setTransparencia] = useState(site.transparencia);
   const [msg, setMsg] = useState("");
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -50,9 +51,9 @@ export function Aparencia({ auditar }: { auditar: Auditar }) {
     if (contraste < 4.5) return setErro("A cor está clara demais: o texto branco ficaria difícil de ler. Escolha uma cor mais escura.");
     setOcupado(true);
     try {
-      await setDoc(docM("config", "site"), { nome: nome.trim(), cor: cor.toLowerCase(), logo, contato: contato.trim(), atualizadoEm: serverTimestamp() });
+      await setDoc(docM("config", "site"), { nome: nome.trim(), cor: cor.toLowerCase(), logo, contato: contato.trim(), transparencia, atualizadoEm: serverTimestamp() });
       setMsg("Aparência salva. Já vale para todos os usuários.");
-      await auditar("config.editar", nome.trim(), `cor ${cor}${logo ? ", com logomarca" : ", sem logomarca"}`);
+      await auditar("config.editar", nome.trim(), `cor ${cor}${logo ? ", com logomarca" : ", sem logomarca"}, transparência ${transparencia ? "pública" : "desligada"}`);
     } catch (err) { setErro(mensagemDeErro(err)); }
     finally { setOcupado(false); }
   }
@@ -62,6 +63,15 @@ export function Aparencia({ auditar }: { auditar: Auditar }) {
       <form onSubmit={salvar} className="space-y-4">
         <Campo rotulo="Nome do município (aparece na tela inicial)" value={nome} onChange={(e) => setNome(e.target.value)} maxLength={120} required dica='Exemplo: "Prefeitura Municipal de Rio Preto"' />
         <Campo rotulo="Contato do encarregado de dados / ouvidoria (LGPD)" value={contato} onChange={(e) => setContato(e.target.value)} maxLength={120} dica="E-mail ou telefone que aparece na Política de Privacidade." />
+        <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3">
+          <input type="checkbox" checked={transparencia} onChange={(e) => setTransparencia(e.target.checked)} className="mt-1 size-5" />
+          <span className="text-sm">
+            <span className="font-medium">Publicar o painel de transparência</span>
+            <span className="block text-slate-600">Qualquer pessoa vê os números da Ouvidoria (totais, prazos, notas, por secretaria), sem nomes nem mensagens, em{" "}
+              <a className="break-all text-brand underline" href={`/${idMunicipio()}/transparencia`} target="_blank" rel="noreferrer">{`${location.host}/${idMunicipio()}/transparencia`}</a>.
+              Os números são os mesmos do painel do prefeito.</span>
+          </span>
+        </label>
 
         <div>
           <p className="mb-1 text-sm font-medium text-slate-700">Logomarca da prefeitura</p>

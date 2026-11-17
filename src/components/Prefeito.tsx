@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { onSnapshot } from "firebase/firestore";
 import { docM } from "../lib/municipio";
 import { mensagemDeErro } from "../lib/erros";
 import { TIPOS, type Estatisticas } from "../lib/types";
@@ -33,25 +32,13 @@ function Barras({ titulo, itens }: { titulo: string; itens: [string, number][] }
   );
 }
 
-// Visão do prefeito: só números agregados. Nenhum dado pessoal, nenhuma conversa.
-export function PainelPrefeito() {
-  const [e, setE] = useState<Estatisticas | null | undefined>(undefined);
-  const [erro, setErro] = useState("");
-  useEffect(() => onSnapshot(docM("estatisticas", "atual"),
-    (s) => setE(s.exists() ? (s.data() as Estatisticas) : null),
-    (err) => { setErro(mensagemDeErro(err)); setE(null); }), []);
-
-  if (e === undefined) return <Carregando />;
-  if (!e) return <div className="space-y-3"><h2 className="text-lg font-semibold">Painel do prefeito</h2>{erro && <Aviso>{erro}</Aviso>}
-    <Aviso tipo="info">Ainda não há números publicados. A Ouvidoria publica o resumo ao abrir o painel dela.</Aviso></div>;
-
+// Bloco de números (sem dados pessoais). Usado no painel do prefeito e no painel público de transparência.
+export function PainelNumeros({ e }: { e: Estatisticas }) {
   const secs = Object.entries(e.porSecretaria).sort((a, b) => b[1].total - a[1].total);
   const meses = Object.entries(e.porMes).sort((a, b) => a[0].localeCompare(b[0]));
   const concl = e.porStatus.concluido ?? 0;
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-semibold">Painel do prefeito</h2>
-      <p className="text-sm text-slate-700">Somente números, sem dados pessoais. Atualizado em {dataBR(e.geradoEm)}.</p>
       <div className="grid grid-cols-2 gap-3">
         <Numero rotulo="Manifestações" valor={e.total} />
         <Numero rotulo="Sem resposta e vencidas" valor={e.vencidas} destaque={e.vencidas > 0} />
@@ -69,6 +56,26 @@ export function PainelPrefeito() {
           <li key={n} className="flex justify-between gap-2 border-b py-1 last:border-0"><span className="truncate">{n}</span><span className="font-semibold text-red-700">{c.vencidas}</span></li>))}</ul>
       </Cartao>
       <Barras titulo="Evolução por mês" itens={meses.map(([m, v]) => [`${m.slice(5)}/${m.slice(0, 4)}`, v] as [string, number])} />
+    </div>
+  );
+}
+
+// Visão do prefeito: só números agregados. Nenhum dado pessoal, nenhuma conversa.
+export function PainelPrefeito() {
+  const [e, setE] = useState<Estatisticas | null | undefined>(undefined);
+  const [erro, setErro] = useState("");
+  useEffect(() => onSnapshot(docM("estatisticas", "atual"),
+    (s) => setE(s.exists() ? (s.data() as Estatisticas) : null),
+    (err) => { setErro(mensagemDeErro(err)); setE(null); }), []);
+
+  if (e === undefined) return <Carregando />;
+  if (!e) return <div className="space-y-3"><h2 className="text-lg font-semibold">Painel do prefeito</h2>{erro && <Aviso>{erro}</Aviso>}
+    <Aviso tipo="info">Ainda não há números publicados. A Ouvidoria publica o resumo ao abrir o painel dela.</Aviso></div>;
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-semibold">Painel do prefeito</h2>
+      <p className="text-sm text-slate-700">Somente números, sem dados pessoais. Atualizado em {dataBR(e.geradoEm)}.</p>
+      <PainelNumeros e={e} />
     </div>
   );
 }

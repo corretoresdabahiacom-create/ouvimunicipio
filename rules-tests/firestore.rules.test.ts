@@ -761,6 +761,32 @@ describe("14. Ouvidor geral: lê tudo, encaminha ao setor, cobra e deixa histór
       await assertFails(getDoc(doc(sam(), "municipios/a/estatisticas/atual")));
       await assertFails(getDoc(doc(anonimo(), "municipios/a/estatisticas/atual")));
     });
+  describe("painel público de transparência (opcional por município)", () => {
+    const site = (extra: Record<string, unknown> = {}) => ({ nome: "Município A", cor: "#0b3b8c", logo: "", contato: "", atualizadoEm: serverTimestamp(), ...extra });
+    test("desligado (padrão): visitante e cidadão não leem os números", async () => {
+      await setDoc(doc(olga(), "municipios/a/estatisticas/atual"), stats());
+      await assertFails(getDoc(doc(anonimo(), "municipios/a/estatisticas/atual")));
+      await assertFails(getDoc(doc(ana(), "municipios/a/estatisticas/atual")));
+    });
+    test("o admin liga a transparência em Aparência; aí qualquer pessoa lê (só leitura)", async () => {
+      await setDoc(doc(olga(), "municipios/a/estatisticas/atual"), stats());
+      await assertSucceeds(setDoc(doc(adm(), "municipios/a/config/site"), site({ transparencia: true })));
+      await assertSucceeds(getDoc(doc(anonimo(), "municipios/a/estatisticas/atual")));
+      await assertSucceeds(getDoc(doc(ana(), "municipios/a/estatisticas/atual")));
+      await assertFails(setDoc(doc(anonimo(), "municipios/a/estatisticas/atual"), stats({ geradoPor: "X" })));
+      await assertFails(getDocs(collection(anonimo(), "municipios/a/estatisticas")));
+    });
+    test("a transparência de A não abre os números de B", async () => {
+      await assertSucceeds(setDoc(doc(adm(), "municipios/a/config/site"), site({ transparencia: true })));
+      await env.withSecurityRulesDisabled(async (c) => { await setDoc(doc(c.firestore(), "municipios/b/estatisticas/atual"), { total: 1 }); });
+      await assertFails(getDoc(doc(anonimo(), "municipios/b/estatisticas/atual")));
+    });
+    test("só o admin liga, e o valor precisa ser verdadeiro/falso", async () => {
+      await assertFails(setDoc(doc(olga(), "municipios/a/config/site"), site({ transparencia: true })));
+      await assertFails(setDoc(doc(adm(), "municipios/a/config/site"), site({ transparencia: "sim" })));
+    });
+  });
+
     test("o prefeito NÃO lê protocolos, conversas, mídias, histórico, usuários nem notificações", async () => {
       await assertFails(getDoc(doc(pedro(), "municipios/a/protocolos", NUM)));
       await assertFails(getDocs(collection(pedro(), "municipios/a/protocolos")));

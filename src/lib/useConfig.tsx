@@ -3,10 +3,10 @@ import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/fir
 import { db } from "./firebase";
 import { colM, docM, idMunicipio } from "./municipio";
 
-export interface SiteConfig { nome: string; cor: string; logo: string; contato: string }
+export interface SiteConfig { nome: string; cor: string; logo: string; contato: string; transparencia: boolean }
 export interface Anuncio { id: string; titulo: string; link: string; imagem: string; ativo: boolean; ordem: number }
 
-export const PADRAO: SiteConfig = { nome: "Prefeitura Municipal", cor: "#0b3b8c", logo: "", contato: "" };
+export const PADRAO: SiteConfig = { nome: "Prefeitura Municipal", cor: "#0b3b8c", logo: "", contato: "", transparencia: false };
 const chave = () => `ouvidoria-site-config:${idMunicipio()}`;
 
 function lerCache(): SiteConfig {
@@ -53,7 +53,7 @@ export function SiteProvider({ children }: { children: ReactNode }) {
     return onSnapshot(docM("config", "site"), (s) => {
     // sem conexão o Firestore devolve "inexistente" do cache local: nesse caso mantém a marca já conhecida
     if (s.metadata.fromCache && !s.exists()) return;
-    const d = s.exists() ? { ...PADRAO, nome: s.get("nome") ?? PADRAO.nome, cor: s.get("cor") ?? PADRAO.cor, logo: s.get("logo") ?? "", contato: s.get("contato") ?? "" } : PADRAO;
+    const d = s.exists() ? { ...PADRAO, nome: s.get("nome") ?? PADRAO.nome, cor: s.get("cor") ?? PADRAO.cor, logo: s.get("logo") ?? "", contato: s.get("contato") ?? "", transparencia: s.get("transparencia") === true } : PADRAO;
     gravarCache(d); setCfg(d);
     }, () => undefined);
   }, []);

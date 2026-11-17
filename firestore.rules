@@ -359,7 +359,13 @@ service cloud.firestore {
     // O ouvidor (ou o admin) publica um resumo agregado calculado a partir dos metadados dos protocolos.
     // O prefeito lê só este documento: nunca protocolos, conversas, anexos ou usuários.
     match /estatisticas/{id} {
-      allow read: if id == 'atual' && verificado() && (ehPrefeito() || ehOuvidor() || ehAdmin());
+      // Painel público de transparência: qualquer pessoa lê os números se o admin do município ligou a opção.
+      function transparenciaPublica() {
+        return exists(/databases/$(database)/documents/municipios/$(mid)/config/site)
+          && get(/databases/$(database)/documents/municipios/$(mid)/config/site).data.get('transparencia', false) == true;
+      }
+      allow get: if id == 'atual' && ((verificado() && (ehPrefeito() || ehOuvidor() || ehAdmin())) || transparenciaPublica());
+      allow list: if false;
       allow create, update: if id == 'atual' && (ehOuvidor() || ehAdmin())
         && request.resource.data.keys().hasOnly(['geradoEm', 'geradoPor', 'total', 'porStatus', 'porTipo', 'porSecretaria',
              'porMes', 'vencidas', 'tempoMedioRespostaDias', 'dentroPrazoPct', 'notaMedia', 'avaliacoes'])
@@ -431,7 +437,8 @@ service cloud.firestore {
     match /config/{id} {
       allow get: if id == 'site';
       allow create, update: if id == 'site' && ehAdmin()
-        && request.resource.data.keys().hasOnly(['nome', 'cor', 'logo', 'contato', 'atualizadoEm'])
+        && request.resource.data.keys().hasOnly(['nome', 'cor', 'logo', 'contato', 'transparencia', 'atualizadoEm'])
+        && request.resource.data.get('transparencia', false) is bool
         && request.resource.data.get('contato', '') is string && request.resource.data.get('contato', '').size() <= 120
         && request.resource.data.nome is string && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 120
         && request.resource.data.cor is string && request.resource.data.cor.matches('#[0-9a-fA-F]{6}')

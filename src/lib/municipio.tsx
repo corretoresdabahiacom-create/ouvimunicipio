@@ -17,12 +17,13 @@ function exigir(): string {
 export const colM = (...seg: string[]) => collection(db, "municipios", exigir(), ...seg);
 export const docM = (...seg: string[]) => doc(db, "municipios", exigir(), ...seg);
 
-export type Rota = { tipo: "super" } | { tipo: "municipio"; slug: string } | { tipo: "raiz" };
+export type Rota = { tipo: "super" } | { tipo: "municipio"; slug: string; sub: string } | { tipo: "raiz" };
 export function rotaAtual(path = location.pathname): Rota {
-  const p = path.split("/").filter(Boolean)[0]?.toLowerCase();
+  const partes = path.split("/").filter(Boolean);
+  const p = partes[0]?.toLowerCase();
   if (!p) return { tipo: "raiz" };
   if (p === "superadmin") return { tipo: "super" };
-  if (SLUG.test(p) && !RESERVADOS.includes(p)) return { tipo: "municipio", slug: p };
+  if (SLUG.test(p) && !RESERVADOS.includes(p)) return { tipo: "municipio", slug: p, sub: (partes[1] ?? "").toLowerCase() };
   return { tipo: "raiz" };
 }
 
