@@ -159,3 +159,9 @@ Política de Privacidade atualizada (local da ocorrência e consulta pelo númer
 o script só lê metadados e a equipe). A ficha pública é atualizada logo depois de cada mudança; se a conexão cair nesse instante,
 ela fica desatualizada até a próxima mudança do protocolo. Os mapas usam os servidores públicos do OpenStreetMap, adequados para
 uso leve; com muito uso, trocar por um provedor de mapas próprio.
+
+## Superadmin: editar e excluir município — 17/11/2026
+Editar nome; excluir = desativa, esconde e bloqueia o endereço para sempre (regras impedem reativar, alterar ou recriar);
+apagamento definitivo dos dados só pelo script `scripts/apagar-municipio.mjs` (backup antes, confirmação obrigatória).
+O painel recusa cadastrar o próprio e-mail do superadmin como administrador (as regras já recusavam).
+Regras: 2 testes novos (total 156), **ainda não executados**. Tela: compila; não testada com o Firebase.
