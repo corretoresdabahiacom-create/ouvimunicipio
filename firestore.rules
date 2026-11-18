@@ -165,7 +165,8 @@ service cloud.firestore {
     // O ID do documento é o e-mail em minúsculas. A pessoa se cadastra normalmente,
     // confirma o e-mail e, se estiver aqui e ativa, ganha o papel correspondente.
     match /equipe/{email} {
-      allow read: if verificado() && (ehAdmin() || meuEmail() == email || superadmin());
+      // o superadmin lê só os documentos de ADMINISTRADOR (para listar/desativar); nunca secretários, ouvidores etc.
+      allow read: if verificado() && (ehAdmin() || meuEmail() == email || (superadmin() && resource.data.papel == 'admin'));
       // o SUPERADMIN só cadastra administradores do município (nunca o próprio e-mail); o resto é do admin do município
       allow create, update: if superadmin() && email != meuEmail()
         && request.resource.data.keys().hasOnly(['nome', 'papel', 'ativo'])
@@ -181,7 +182,8 @@ service cloud.firestore {
               && exists(/databases/$(database)/documents/municipios/$(mid)/secretarias/$(request.resource.data.secretariaId))))
         // o admin não pode se rebaixar nem se desativar (evita ficar sem administrador)
         && (email != meuEmail() || (request.resource.data.papel == 'admin' && request.resource.data.ativo == true));
-      allow delete: if ehAdmin() && email != meuEmail();
+      allow delete: if (ehAdmin() && email != meuEmail())
+        || (superadmin() && email != meuEmail() && resource.data.papel == 'admin');
     }
 
     // ---------- secretarias ----------

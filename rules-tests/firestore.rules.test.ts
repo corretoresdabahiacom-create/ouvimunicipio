@@ -926,6 +926,21 @@ describe("17. Isolamento entre municípios e SUPERADMIN", () => {
       await assertFails(setDoc(doc(dono(), "municipios/a/equipe/novo@x.com"), { nome: "Novo", papel: "ouvidor", ativo: true }));
       await assertFails(setDoc(doc(dono(), "municipios/a/equipe/dono@x.com"), { nome: "Dono", papel: "admin", ativo: true }));
     });
+    test("lista e remove só ADMINISTRADORES do município; desativa um admin; nunca lê secretários, ouvidores etc.", async () => {
+      await assertSucceeds(getDocs(query(collection(dono(), "municipios/a/equipe"), where("papel", "==", "admin"))));
+      await assertSucceeds(getDoc(doc(dono(), "municipios/a/equipe/adm@x.com")));
+      await assertFails(getDocs(collection(dono(), "municipios/a/equipe")));
+      await assertFails(getDoc(doc(dono(), "municipios/a/equipe/sam@x.com")));
+      await assertFails(getDoc(doc(dono(), "municipios/a/equipe/olga@x.com")));
+      await assertSucceeds(updateDoc(doc(dono(), "municipios/a/equipe/adm@x.com"), { ativo: false }));
+      await assertFails(deleteDoc(doc(dono(), "municipios/a/equipe/sam@x.com")));
+      await assertSucceeds(deleteDoc(doc(dono(), "municipios/a/equipe/adm@x.com")));
+      await assertFails(deleteDoc(doc(adm(), "municipios/b/equipe/admb@x.com")));
+    });
+    test("o administrador de um município não vê nem apaga administradores de outro (superadmin à parte)", async () => {
+      await assertFails(getDoc(doc(adm(), "municipios/b/equipe/admb@x.com")));
+      await assertFails(deleteDoc(doc(adm(), "municipios/b/equipe/admb@x.com")));
+    });
     test("NÃO lê protocolos, conversas, mídias, histórico, usuários nem notificações de nenhum município", async () => {
       await assertFails(getDoc(doc(dono(), "municipios/a/protocolos", NUM)));
       await assertFails(getDocs(collection(dono(), "municipios/a/protocolos")));
