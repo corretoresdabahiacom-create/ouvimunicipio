@@ -6,7 +6,7 @@ import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { X } from "lucide-react";
 import { useSite } from "../lib/useConfig";
-import { VERSAO_TERMOS } from "../lib/types";
+import { ANOS_RETENCAO, VERSAO_TERMOS } from "../lib/types";
 import { Aviso, Botao, Cartao } from "./ui";
 
 /** Textos-modelo. A prefeitura deve revisá-los com a assessoria jurídica e o encarregado de dados (LGPD). */
@@ -42,7 +42,7 @@ export function Politica() {
         <li><b>Para quê.</b> Atender sua manifestação e prestar o serviço público de ouvidoria (LGPD, art. 7º, III e Lei nº 13.460/2017). O telefone e o envio de avisos por e-mail dependem do seu consentimento.</li>
         <li><b>Quem pode ver.</b> O conteúdo das mensagens e anexos é visível para <b>você, a secretaria responsável</b> e a <b>Ouvidoria geral do município</b>, que lê para encaminhar ao setor certo e cobrar respostas (ela não responde em nome da secretaria). O administrador do sistema vê a lista de usuários (nome, e-mail e telefone) para gerenciar contas e dados estatísticos do protocolo (número, tipo, secretaria, datas e nota), mas <b>não lê as conversas</b>. O prefeito vê <b>apenas números</b> (totais, prazos e notas), sem nomes nem conteúdo.</li>
         <li><b>Fornecedores.</b> Usamos Google Firebase (login e banco de dados), Cloudflare (hospedagem) e um serviço de envio de e-mails. Esses dados podem ficar em servidores fora do Brasil, com as garantias previstas na LGPD.</li>
-        <li><b>Por quanto tempo.</b> Conversa e anexos: apagados 30 dias após a conclusão do atendimento. Dados do protocolo sem identificação (número, tipo, secretaria, datas e nota): mantidos para estatísticas e prestação de contas. Sua conta: até você pedir a exclusão.</li>
+        <li><b>Por quanto tempo.</b> Conversa e anexos: apagados 30 dias após a conclusão do atendimento. Dados do protocolo sem identificação (número, tipo, secretaria, datas e nota): mantidos para estatísticas e prestação de contas por até {ANOS_RETENCAO} anos após a conclusão, quando são apagados. Sua conta: até você pedir a exclusão.</li>
         <li><b>Seus direitos (art. 18).</b> Você pode acessar e corrigir seus dados em <i>Perfil</i>, pedir informações, revogar consentimentos e <b>excluir sua conta</b> a qualquer momento em <i>Perfil → Excluir minha conta</i>. A exclusão apaga nome, e-mail, telefone e login. Mensagens já enviadas continuam acessíveis apenas à secretaria e à Ouvidoria até 30 dias após a conclusão do protocolo, sem ligação com o seu nome.</li>
         <li><b>Segurança.</b> Conexão criptografada, e-mail confirmado, regras de acesso por pessoa, por secretaria e por município e bloqueio de contas. Nenhum sistema é totalmente imune; em caso de incidente relevante, a prefeitura comunicará conforme a lei.</li>
         <li><b>Dispositivo.</b> Guardamos no aparelho apenas o necessário para o funcionamento (login, cor e nome do município).</li>

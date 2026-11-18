@@ -56,7 +56,7 @@ Remover ou desativar o cadastro tira o acesso na hora.
   Sem Cloud Functions o app não apaga o *login*: para liberar um e-mail, remova-o em Authentication → Usuários.
 - **Mensagens:** aviso no app (2 a 30 dias) e/ou e-mail (até 500 pessoas por envio, em blocos de 100).
 - **Aparência:** nome, logomarca e cor (contraste mínimo 4,5 com texto branco). **Publicidade:** até 10 anúncios no carrossel.
-- **Relatórios:** indicadores e CSV. O **relatório de gestão em PDF** fica no painel do ouvidor geral.
+- **Relatórios:** indicadores e CSV. O **relatório de gestão em PDF** e a **planilha (CSV)** ficam no painel do ouvidor geral.
 - **Transparência:** em Aparência, "Publicar o painel de transparência" abre `/{municipio}/transparencia` ao público (só números).
 
 ## Termos e LGPD
@@ -71,6 +71,19 @@ Rodam no GitHub Actions (`.github/workflows/alertas-prazo.yml`), de segunda a se
    Depois apague o arquivo JSON do computador.
 3. Teste: aba **Actions** → *Alertas de prazo* → *Run workflow* com "Modo teste" marcado. O registro mostra quem receberia o quê.
 4. Para ligar o envio diário: aba **Variables** → `ALERTAS_ATIVOS` = `true` (e, se usar domínio próprio, `APP_URL`).
+
+## Monitoramento (opcional, gratuito)
+`/api/saude` mostra se as funções estão no ar (sem expor segredos). O workflow **Monitoramento** (`.github/workflows/monitoramento.yml`) confere de hora em hora
+o site, as funções e (se o Secret `FIREBASE_SERVICE_ACCOUNT` existir) o banco; se algo falhar, o GitHub avisa por e-mail. Para ligar: Variables → `MONITORAMENTO_ATIVO` = `true`
+(e `APP_URL`, se usar domínio próprio). Teste agora em Actions → *Monitoramento* → *Run workflow*.
+
+## Retenção de dados (quanto tempo se guarda)
+- **Conversa e anexos:** apagados 30 dias depois da conclusão (feito pelo app).
+- **Protocolo concluído (só números e datas, sem texto):** guardado **5 anos** após a conclusão e depois apagado, junto com a cópia da consulta pública.
+  Roda em `scripts/retencao.mjs` (mensal, workflow **Retenção de dados**); fica **desligado** até `RETENCAO_ATIVA` = `true`. Teste sem apagar: *Run workflow*
+  (modo simulação). Para mudar o prazo: `node retencao.mjs --anos 3`. Antes de apagar ele grava um backup (`.ndjson`), guardado 30 dias na execução do workflow.
+  Isto é uma sugestão de prazo; confirme com a assessoria jurídica do município (tabela de temporalidade) e ajuste `ANOS_RETENCAO` em `src/lib/types.ts` e no workflow.
+- **Conta do cidadão:** até ele pedir a exclusão. **Avisos:** 2 a 30 dias.
 
 ## Mapa, consulta e respostas-modelo
 - Local da ocorrência: opcional para o cidadão (GPS ou toque no mapa). Mapa nas abas da secretaria e do ouvidor.

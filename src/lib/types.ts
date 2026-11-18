@@ -142,7 +142,8 @@ export const PRAZO_PRORROGACAO_DIAS = 30; // prorrogação única, com justifica
 export const AVISO_HORAS = 24;
 export const APAGAR_APOS_DIAS = 30; // conversa é apagada 30 dias depois de concluída
 export const MAX_MENSAGENS = 50;
-export const VERSAO_TERMOS = "2026-11"; // mudou: ouvidor geral lê as conversas; prefeito vê só números
+export const ANOS_RETENCAO = 5; // protocolo concluído é apagado 5 anos depois (scripts/retencao.mjs)
+export const VERSAO_TERMOS = "2026-12"; // mudou: prazo de guarda do protocolo (5 anos)
 
 export type PlanoMunicipio = "basico" | "padrao" | "completo";
 export const PLANOS: Record<PlanoMunicipio, string> = { basico: "Básico", padrao: "Padrão", completo: "Completo" };

@@ -1,0 +1,36 @@
+# Monitoramento a cada hora: site, funções e banco. Se algo falhar, o GitHub avisa por e-mail (falha de workflow).
+# Fica DESLIGADO até a variável do repositório MONITORAMENTO_ATIVO = true (Settings → Secrets and variables → Actions → Variables).
+# Opcional: Secret FIREBASE_SERVICE_ACCOUNT (a mesma dos alertas de prazo) para conferir também o banco; Variable APP_URL.
+# Teste agora: aba Actions → "Monitoramento" → Run workflow.
+name: Monitoramento
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    if: github.event_name == 'workflow_dispatch' || vars.MONITORAMENTO_ATIVO == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - run: npm ci
+      - run: node --test monitorar.test.mjs
+      - name: Verificar
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node monitorar.mjs
