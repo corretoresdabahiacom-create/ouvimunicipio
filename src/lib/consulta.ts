@@ -11,6 +11,7 @@ export async function sincronizarFicha(numero: string): Promise<void> {
     const p = s.data();
     const ficha: Record<string, unknown> = { status: p.status, secretariaNome: p.secretariaNome, criadoEm: p.criadoEm };
     for (const k of ["respondidoEm", "concluidoEm", "prorrogadoEm", "reabertoEm", "aguardandoDesde", "suspensoDias"]) if (p[k] !== undefined && p[k] !== null) ficha[k] = p[k];
+    if (p.tipo === "lai") ficha.lai = true;
     await setDoc(docM("consulta", numero), ficha);
   } catch { /* a ficha pública é conveniência: nunca atrapalha o atendimento */ }
 }

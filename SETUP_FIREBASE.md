@@ -93,6 +93,11 @@ A situação continua sendo aberto → respondido → concluído, com etapas que
 - **Reaberto:** o cidadão pode reabrir **uma vez**, até 30 dias após a conclusão (enquanto a conversa ainda existe). O prazo conta de novo a partir da reabertura.
 Os alertas por e-mail e a consulta pública usam a mesma regra de prazo do app.
 
+## Pedido de acesso à informação (LAI)
+Tipo próprio ("Pedido de acesso à informação (LAI)", Lei 12.527/2011): prazo de **20 dias**, prorrogável **uma vez por mais 10** (com justificativa);
+o cidadão pode apresentar **recurso** (uma vez, até 10 dias depois da resposta) e a administração deve decidir em **5 dias**. Aparece nos relatórios como um tipo à parte.
+Obs.: a ouvidoria atua como canal; classificação de sigilo e a autoridade que julga o recurso seguem o decreto municipal de cada prefeitura.
+
 ## Mapa, consulta e respostas-modelo
 - Local da ocorrência: opcional para o cidadão (GPS ou toque no mapa). Mapa nas abas da secretaria e do ouvidor.
 - Consulta sem login: `/{municipio}/consulta` (link na tela de login).

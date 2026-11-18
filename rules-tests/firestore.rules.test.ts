@@ -1244,7 +1244,75 @@ describe("23. Status extras: em triagem, aguardando informações (prazo suspens
 });
 
 // =====================================================================
+describe("19. Pedido de acesso à informação (LAI): 20 dias + 10 e recurso", () => {
+  const P = () => "municipios/a/protocolos";
+  const N4 = "OUV-2026-LAI00001";
+  const prorrogar = (db: Db, nome = "Sam") => {
+    const b = writeBatch(db);
+    b.update(doc(db, P(), NUM), { prorrogadoEm: serverTimestamp(), prorrogacaoMotivo: "Documentos em arquivo externo.", prorrogacaoPor: nome });
+    b.set(doc(collection(db, "municipios/a/notificacoes")), { uid: "ana", protocoloId: NUM, tipo: "prorrogacao", mensagem: "Prazo prorrogado.", criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * DIA) });
+    return b;
+  };
+  const recurso = (db: Db, o: { uid?: string; extra?: Record<string, unknown> } = {}) => {
+    const uid = o.uid ?? "ana";
+    const b = writeBatch(db);
+    contar(b, db, uid, `${NUM}/m02`);
+    b.set(doc(db, P(), NUM, "mensagens", "m02"), { de: "cidadao", autorUid: uid, texto: "A resposta ficou incompleta.", anexos: [], criadoEm: serverTimestamp() });
+    b.update(doc(db, P(), NUM), { status: "aberto", reabertoEm: serverTimestamp(), ultimaMsgPor: "cidadao", ...(o.extra ?? {}) });
+    return b;
+  };
+  const respondidoHa = (dias: number) => ({ ...respondido, respondidoEm: Timestamp.fromMillis(Date.now() - dias * DIA) });
+
+  test("o cidadão registra um pedido de acesso à informação; a ficha pública marca 'lai' e não aceita marcar o que não é", async () => {
+    await assertSucceeds(novoProtocolo(ana(), N4, { tipo: "lai", consulta: { status: "aberto", secretariaNome: "Saúde", criadoEm: serverTimestamp(), lai: true } }).commit());
+    await assertFails(novoProtocolo(ana(), "OUV-2026-LAI00002", { tipo: "lai", consulta: { status: "aberto", secretariaNome: "Saúde", criadoEm: serverTimestamp() } }).commit());
+    await assertFails(novoProtocolo(ana(), "OUV-2026-LAI00003", { tipo: "reclamacao", consulta: { status: "aberto", secretariaNome: "Saúde", criadoEm: serverTimestamp(), lai: true } }).commit());
+    await assertFails(novoProtocolo(ana(), "OUV-2026-LAI00004", { tipo: "lei-inventada" }).commit());
+  });
+  test("a prorrogação do LAI só vale nos primeiros 20 dias; a de manifestação comum, nos 30", async () => {
+    await semearProtocolo({ tipo: "lai", criadoEm: Timestamp.fromMillis(Date.now() - 15 * DIA) });
+    await assertSucceeds(prorrogar(sam()).commit());
+    await env.clearFirestore(); await semearBase();
+    await semearProtocolo({ tipo: "lai", criadoEm: Timestamp.fromMillis(Date.now() - 21 * DIA) });
+    await assertFails(prorrogar(sam()).commit());
+    await env.clearFirestore(); await semearBase();
+    await semearProtocolo({ criadoEm: Timestamp.fromMillis(Date.now() - 21 * DIA) });
+    await assertSucceeds(prorrogar(sam()).commit());
+  });
+  test("recurso: o autor apresenta até 10 dias depois da resposta, uma única vez", async () => {
+    await semearProtocolo({ tipo: "lai", ...respondidoHa(4) });
+    await assertSucceeds(recurso(ana()).commit());
+    const p = (await getDoc(doc(ana(), P(), NUM))).data()!;
+    if (p.status !== "aberto" || !p.reabertoEm) throw new Error("o recurso deveria reabrir o pedido");
+    // depois de decidido de novo, não cabe outro recurso
+    const r = writeBatch(sam());
+    r.set(doc(sam(), P(), NUM, "mensagens", "m03"), { de: "servidor", autorUid: "sam", texto: "Recurso decidido.", anexos: [], criadoEm: serverTimestamp() });
+    r.update(doc(sam(), P(), NUM), { status: "respondido", ultimaMsgPor: "servidor", respondidoEm: serverTimestamp() });
+    await assertSucceeds(r.commit());
+    await assertFails(recurso(ana()).commit());
+  });
+  test("recurso fora do prazo de 10 dias, de outra pessoa ou sem o registro do envio é recusado", async () => {
+    await semearProtocolo({ tipo: "lai", ...respondidoHa(11) });
+    await assertFails(recurso(ana()).commit());
+    await env.clearFirestore(); await semearBase(); await semearProtocolo({ tipo: "lai", ...respondidoHa(2) });
+    await assertFails(recurso(beto(), { uid: "beto" }).commit());
+    await assertFails(recurso(ana(), { extra: { reabertoEm: Timestamp.fromMillis(Date.now() + DIA) } }).commit());
+  });
+  test("recurso também cabe logo depois de concluído (até 10 dias) e não depois", async () => {
+    await semearProtocolo({ tipo: "lai", ...concluidoHa(3) });
+    await assertSucceeds(recurso(ana()).commit());
+    await env.clearFirestore(); await semearBase(); await semearProtocolo({ tipo: "lai", ...concluidoHa(12) });
+    await assertFails(recurso(ana()).commit());
+  });
+  test("manifestação comum não ganha recurso logo após a 1ª resposta (só reabre depois de concluída)", async () => {
+    await semearProtocolo(respondidoHa(2));
+    await assertFails(recurso(ana()).commit());
+  });
+});
+
+// =====================================================================
 // Ainda NÃO existem no sistema (Fases 2 e 3 do plano). Ficam aqui como lembrete obrigatório:
 describe("Pendentes (Fases 2 e 3)", () => {
-  test.todo("19. Pedidos de acesso à informação (LAI) e recursos, separados da Ouvidoria");
+  // nada pendente: LAI e recursos foram feitos (seção 19)
+  test("lista de pendências vazia", () => {});
 });

@@ -3,8 +3,11 @@ export const DIA = 86_400_000;
 export const PRAZO_DIAS = 30;
 export const PRORROGACAO_DIAS = 30;
 export const MAX_SUSPENSAO_DIAS = 20;
+// Pedido de acesso à informação (Lei 12.527/2011): 20 dias + 10; recurso decidido em 5 dias. Igual a src/lib/types.ts.
+export const LAI = { prazo: 20, prorrogacao: 10, decisaoRecursoDias: 5 };
+const prazosDoTipo = (tipo) => (tipo === "lai" ? { prazo: LAI.prazo, prorrogacao: LAI.prorrogacao } : { prazo: PRAZO_DIAS, prorrogacao: PRORROGACAO_DIAS });
 export const NIVEIS_ALERTA = ["vencido", "hoje", "dois", "cinco"]; // "dez" e "ok" não geram e-mail
-const TIPOS = { reclamacao: "Reclamação", denuncia: "Denúncia", solicitacao: "Solicitação", sugestao: "Sugestão", elogio: "Elogio", informacao: "Pedido de informação" };
+const TIPOS = { reclamacao: "Reclamação", denuncia: "Denúncia", solicitacao: "Solicitação", sugestao: "Sugestão", elogio: "Elogio", informacao: "Dúvida ou informação geral", lai: "Pedido de acesso à informação (LAI)" };
 
 const ms = (t) => (t == null ? null : typeof t === "number" ? t : t instanceof Date ? t.getTime() : t.toMillis());
 
@@ -19,7 +22,10 @@ export function diasSuspensos(p, agora) {
 // 30 dias do envio (ou da reabertura), +30 se prorrogado, + dias suspensos. Igual a src/components/ui.tsx.
 export function prazoFinal(p, agora = Date.now()) {
   const c = ms(p.reabertoEm ?? p.criadoEm);
-  return c == null ? null : c + (PRAZO_DIAS + (p.prorrogadoEm ? PRORROGACAO_DIAS : 0) + diasSuspensos(p, agora)) * DIA;
+  if (c == null) return null;
+  if (p.tipo === "lai" && p.reabertoEm) return c + LAI.decisaoRecursoDias * DIA; // recurso
+  const t = prazosDoTipo(p.tipo);
+  return c + (t.prazo + (p.prorrogadoEm ? t.prorrogacao : 0) + diasSuspensos(p, agora)) * DIA;
 }
 
 export function nivelPrazo(p, agora) {

@@ -7,7 +7,7 @@ import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
 import { sincronizarFicha } from "../lib/consulta";
-import { TIPOS, type Coordenada, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
+import { LAI, TIPOS, type Coordenada, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
 import { Aviso, Botao, Campo, Cartao, Carregando, Selo, dataBR, rotuloPrazo } from "./ui";
 import { ProtocoloDetalhe, SeletorAnexos, gravarMidias, prepararAnexos, useAnexos, useLimpezaConversas } from "./Conversa";
 
@@ -113,6 +113,10 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
             <option value="">Selecione…</option>
             {(Object.keys(TIPOS) as TipoManifestacao[]).map((t) => <option key={t} value={t}>{TIPOS[t]}</option>)}
           </select>
+          {tipo === "lai" && (
+            <span className="mt-1 block text-xs text-slate-700">Use para pedir <b>documentos ou dados públicos</b> do município (Lei 12.527/2011). A resposta vem em até <b>{LAI.prazo} dias</b>,
+              prorrogáveis por mais {LAI.prorrogacao} com justificativa. Se for negada ou incompleta, você pode apresentar <b>recurso</b> em até {LAI.recursoPrazoDias} dias.</span>
+          )}
         </label>
         <Campo rotulo="Assunto" value={assunto} onChange={(e) => setAssunto(e.target.value)} maxLength={120} required />
         <label className="block">

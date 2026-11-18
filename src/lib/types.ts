@@ -38,7 +38,8 @@ export interface AnexoMeta { k: string; nome: string; tipo: "imagem" | "video"; 
 
 export const TIPOS = {
   reclamacao: "Reclamação", denuncia: "Denúncia", solicitacao: "Solicitação",
-  sugestao: "Sugestão", elogio: "Elogio", informacao: "Pedido de informação",
+  sugestao: "Sugestão", elogio: "Elogio", informacao: "Dúvida ou informação geral",
+  lai: "Pedido de acesso à informação (LAI)",
 } as const;
 export type TipoManifestacao = keyof typeof TIPOS;
 
@@ -102,6 +103,10 @@ export interface FichaConsulta {
   respondidoEm?: Timestamp | null;
   concluidoEm?: Timestamp | null;
   prorrogadoEm?: Timestamp | null;
+  reabertoEm?: Timestamp | null;
+  aguardandoDesde?: Timestamp | null;
+  suspensoDias?: number;
+  lai?: boolean; // pedido de acesso à informação (prazos próprios)
 }
 
 // Resposta-modelo da secretaria (texto pronto para as respostas). Marcadores: {numero}, {secretaria}.
@@ -144,6 +149,13 @@ export interface Estatisticas {
 }
 
 export const PRAZO_DIAS = 30;
+// Pedido de acesso à informação (Lei 12.527/2011): 20 dias, prorrogável por mais 10 (art. 11); recurso em até 10 dias (art. 15),
+// que a administração deve decidir em 5 dias.
+export const LAI = { prazo: 20, prorrogacao: 10, recursoPrazoDias: 10, decisaoRecursoDias: 5 } as const;
+/** Prazos (em dias) conforme o tipo: manifestação comum (30 + 30) ou pedido de acesso à informação (20 + 10). */
+export function prazosDoTipo(tipo?: string | null): { prazo: number; prorrogacao: number } {
+  return tipo === "lai" ? { prazo: LAI.prazo, prorrogacao: LAI.prorrogacao } : { prazo: PRAZO_DIAS, prorrogacao: PRAZO_PRORROGACAO_DIAS };
+}
 export const MAX_SUSPENSAO_DIAS = 20; // espera pelo cidadão que soma ao prazo, por pedido
 export const PRAZO_PRORROGACAO_DIAS = 30; // prorrogação única, com justificativa (Lei 13.460/2017, art. 16)
 export const AVISO_HORAS = 24;

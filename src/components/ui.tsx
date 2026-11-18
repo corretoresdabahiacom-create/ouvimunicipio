@@ -1,6 +1,6 @@
 import { type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from "react";
 import { Loader2, AlertCircle, CheckCircle2, ArrowLeft } from "lucide-react";
-import { MAX_SUSPENSAO_DIAS, PRAZO_DIAS, PRAZO_PRORROGACAO_DIAS, type Protocolo } from "../lib/types";
+import { LAI, MAX_SUSPENSAO_DIAS, prazosDoTipo, type Protocolo } from "../lib/types";
 
 export function Botao({ carregando, variante = "primario", className = "", children, ...p }:
   ButtonHTMLAttributes<HTMLButtonElement> & { carregando?: boolean; variante?: "primario" | "secundario" | "perigo" | "link" }) {
@@ -78,8 +78,12 @@ export function diasSuspensos(p: Protocolo, agora = Date.now()): number {
 // Prazo da manifestação: 30 dias a partir do envio (ou da reabertura), mais 30 se a secretaria prorrogou (uma única vez,
 // com justificativa) e mais os dias em que o prazo ficou suspenso à espera de informações do cidadão.
 export function prazoFinal(p: Protocolo, agora = Date.now()): Date | null {
+  const t = prazosDoTipo(p.tipo);
+  const recurso = p.tipo === "lai" && !!p.reabertoEm; // recurso de pedido de informação: a administração decide em 5 dias
   const d = (p.reabertoEm ?? p.criadoEm)?.toDate?.();
-  return d ? new Date(d.getTime() + (PRAZO_DIAS + (p.prorrogadoEm ? PRAZO_PRORROGACAO_DIAS : 0) + diasSuspensos(p, agora)) * DIA_MS) : null;
+  if (!d) return null;
+  if (recurso) return new Date(d.getTime() + LAI.decisaoRecursoDias * DIA_MS);
+  return new Date(d.getTime() + (t.prazo + (p.prorrogadoEm ? t.prorrogacao : 0) + diasSuspensos(p, agora)) * DIA_MS);
 }
 
 export function diasRestantes(p: Protocolo): number | null {

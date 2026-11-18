@@ -12,7 +12,7 @@ import { sincronizarFicha } from "../lib/consulta";
 import {
   MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, identificar, juntarPartes, tipoDe,
 } from "../lib/media";
-import { APAGAR_APOS_DIAS, MAX_MENSAGENS, MAX_SUSPENSAO_DIAS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
+import { APAGAR_APOS_DIAS, LAI, MAX_MENSAGENS, MAX_SUSPENSAO_DIAS, TIPOS, prazosDoTipo, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
 import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, diasSuspensos, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
 
 const DIA = 86_400_000;
@@ -323,6 +323,14 @@ function Estrelas({ valor, onChange, desativado }: { valor: number; onChange?: (
 }
 
 // Reabrir um atendimento concluído: só o autor, uma vez, até 30 dias após a conclusão (enquanto a conversa existe).
+// Pode reabrir (ou, no pedido de acesso à informação, apresentar recurso)?
+export function podeReabrir(p: Protocolo, agora = Date.now()): boolean {
+  if (p.reabertoEm || p.apagada) return false;
+  const ate = (t: { toDate?: () => Date } | null | undefined, dias: number) => { const d = t?.toDate?.(); return !!d && agora < d.getTime() + dias * DIA; };
+  if (p.tipo === "lai") return (p.status === "respondido" && ate(p.respondidoEm, LAI.recursoPrazoDias)) || (p.status === "concluido" && ate(p.concluidoEm, LAI.recursoPrazoDias));
+  return p.status === "concluido" && !conversaVencida(p);
+}
+
 function Reabertura({ p, proximo }: { p: Protocolo; proximo: number }) {
   const { perfil } = useAuth();
   const [aberto, setAberto] = useState(false);
@@ -348,14 +356,17 @@ function Reabertura({ p, proximo }: { p: Protocolo; proximo: number }) {
     } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
   }
 
-  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>O problema não foi resolvido? Reabrir</Botao>;
+  const lai = p.tipo === "lai";
+  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>{lai ? "Apresentar recurso" : "O problema não foi resolvido? Reabrir"}</Botao>;
   return (
     <form onSubmit={reabrir} className="space-y-2 rounded-lg border border-violet-300 bg-violet-50 p-3">
-      <p className="text-sm text-violet-950">Você pode reabrir <b>uma vez</b>, até 30 dias depois da conclusão. O prazo da secretaria passa a contar de novo, a partir de agora.</p>
-      <textarea aria-label="Motivo da reabertura" value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} maxLength={5000} required
+      {lai
+        ? <p className="text-sm text-violet-950"><b>Recurso</b> (Lei 12.527/2011, art. 15): vale <b>uma vez</b>, até {LAI.recursoPrazoDias} dias depois da resposta. Explique por que a resposta foi negada ou ficou incompleta. A administração deve decidir em {LAI.decisaoRecursoDias} dias.</p>
+        : <p className="text-sm text-violet-950">Você pode reabrir <b>uma vez</b>, até 30 dias depois da conclusão. O prazo da secretaria passa a contar de novo, a partir de agora.</p>}
+      <textarea aria-label={lai ? "Motivo do recurso" : "Motivo da reabertura"} value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} maxLength={5000} required
         className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
       {erro && <Aviso>{erro}</Aviso>}
-      <div className="flex gap-2"><Botao type="submit" carregando={ocupado}>Reabrir atendimento</Botao>
+      <div className="flex gap-2"><Botao type="submit" carregando={ocupado}>{lai ? "Enviar recurso" : "Reabrir atendimento"}</Botao>
         <Botao type="button" variante="link" onClick={() => { setAberto(false); setErro(""); }}>Cancelar</Botao></div>
     </form>
   );
@@ -392,6 +403,7 @@ function Encerramento({ p, eu, proximo }: { p: Protocolo; eu: "cidadao" | "servi
           </>}
           {erro && <Aviso>{erro}</Aviso>}
           <Botao onClick={concluir} carregando={ocupado}>Concluir atendimento</Botao>
+          {eu === "cidadao" && podeReabrir(p) && <Reabertura p={p} proximo={proximo} />}
           <p className="text-xs text-slate-600">Ao concluir, a conversa e os anexos são apagados {APAGAR_APOS_DIAS} dias depois. Ficam apenas os dados do protocolo (número, secretaria, datas e nota), sem seu nome.</p>
         </>
       )}
@@ -400,7 +412,7 @@ function Encerramento({ p, eu, proximo }: { p: Protocolo; eu: "cidadao" | "servi
           <p className="font-medium">Atendimento concluído em {dataBR(p.concluidoEm)}.</p>
           {apagar && <p className="text-sm text-slate-700">A conversa e os anexos serão apagados em {apagar.toLocaleDateString("pt-BR")}.</p>}
           {p.reabertoEm && <p className="text-sm text-slate-700">Este atendimento já foi reaberto em {dataBR(p.reabertoEm)} (só é possível uma vez).</p>}
-          {eu === "cidadao" && !p.reabertoEm && !p.apagada && !conversaVencida(p) && <Reabertura p={p} proximo={proximo} />}
+          {eu === "cidadao" && podeReabrir(p) && <Reabertura p={p} proximo={proximo} />}
           {p.avaliacao ? <div><p className="text-sm">Nota do cidadão:</p><Estrelas valor={p.avaliacao} desativado /></div>
             : eu === "cidadao" && (
               <div className="space-y-2"><p className="text-sm">Como foi o atendimento?</p><Estrelas valor={nota} onChange={setNota} />
@@ -432,7 +444,7 @@ function Prorrogacao({ p }: { p: Protocolo }) {
       lote.update(docM("protocolos", p.id), { prorrogadoEm: serverTimestamp(), prorrogacaoMotivo: m, prorrogacaoPor: perfil.nome });
       lote.set(doc(colM("notificacoes")), {
         uid: p.autorUid, protocoloId: p.id, tipo: "prorrogacao",
-        mensagem: `O prazo do protocolo ${p.numero} foi prorrogado por ${PRAZO_PRORROGACAO_DIAS} dias. Motivo informado pela secretaria: ${m}`,
+        mensagem: `O prazo do protocolo ${p.numero} foi prorrogado por ${prazosDoTipo(p.tipo).prorrogacao} dias. Motivo informado pela secretaria: ${m}`,
         criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
       });
       await lote.commit();
@@ -441,10 +453,10 @@ function Prorrogacao({ p }: { p: Protocolo }) {
     } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
   }
 
-  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>Prorrogar prazo (+{PRAZO_PRORROGACAO_DIAS} dias)</Botao>;
+  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>Prorrogar prazo (+{prazosDoTipo(p.tipo).prorrogacao} dias)</Botao>;
   return (
     <form onSubmit={prorrogar} className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
-      <p className="text-sm text-amber-950">A lei permite prorrogar <b>uma única vez</b>, por até {PRAZO_PRORROGACAO_DIAS} dias, com justificativa expressa. O cidadão será avisado e verá o motivo. Seu nome fica registrado.</p>
+      <p className="text-sm text-amber-950">A lei permite prorrogar <b>uma única vez</b>, por até {prazosDoTipo(p.tipo).prorrogacao} dias{p.tipo === "lai" ? " (Lei de Acesso à Informação, art. 11)" : ""}, com justificativa expressa. O cidadão será avisado e verá o motivo. Seu nome fica registrado.</p>
       <label className="block">
         <span className="mb-1 block text-sm font-medium">Motivo da prorrogação</span>
         <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} maxLength={300} required
@@ -517,7 +529,7 @@ export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar
         </dl>
         {p.prorrogadoEm && (
           <Aviso tipo="info">
-            <b>Prazo prorrogado</b> em {dataBR(p.prorrogadoEm)}{p.prorrogacaoPor ? ` por ${p.prorrogacaoPor}` : ""}, por mais {PRAZO_PRORROGACAO_DIAS} dias (a prorrogação só pode ser feita uma vez).
+            <b>Prazo prorrogado</b> em {dataBR(p.prorrogadoEm)}{p.prorrogacaoPor ? ` por ${p.prorrogacaoPor}` : ""}, por mais {prazosDoTipo(p.tipo).prorrogacao} dias (a prorrogação só pode ser feita uma vez).
             {p.prorrogacaoMotivo && <> Motivo: {p.prorrogacaoMotivo}</>}
           </Aviso>
         )}
@@ -529,7 +541,7 @@ export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar
           </Aviso>
         )}
         {p.reabertoEm && p.status !== "concluido" && (
-          <Aviso tipo="info"><b>Atendimento reaberto</b> pelo cidadão em {dataBR(p.reabertoEm)}. O prazo conta a partir dessa data.</Aviso>
+          <Aviso tipo="info">{p.tipo === "lai" ? <><b>Recurso apresentado</b> em {dataBR(p.reabertoEm)}. A administração deve decidir em {LAI.decisaoRecursoDias} dias.</> : <><b>Atendimento reaberto</b> pelo cidadão em {dataBR(p.reabertoEm)}. O prazo conta a partir dessa data.</>}</Aviso>
         )}
         {historico.length > 0 && (
           <Aviso tipo="info">

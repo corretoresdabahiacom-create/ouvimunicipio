@@ -217,7 +217,7 @@ service cloud.firestore {
         && (!('regiao' in request.resource.data) || aproximadoOk(request.resource.data.regiao))
         && request.resource.data.numero == numero
         && request.resource.data.autorUid == request.auth.uid
-        && request.resource.data.tipo in ['reclamacao', 'denuncia', 'solicitacao', 'sugestao', 'elogio', 'informacao']
+        && request.resource.data.tipo in ['reclamacao', 'denuncia', 'solicitacao', 'sugestao', 'elogio', 'informacao', 'lai']
         && request.resource.data.status == 'aberto'
         && request.resource.data.ultimaMsgPor == 'cidadao'
         && request.resource.data.criadoEm == request.time
@@ -254,11 +254,16 @@ service cloud.firestore {
           && request.resource.data.suspensoDias >= resource.data.get('suspensoDias', 0)
           && request.resource.data.suspensoDias <= resource.data.get('suspensoDias', 0) + 20)
         ||
-        // cidadão reabre o atendimento concluído, uma única vez e até 30 dias após a conclusão (enquanto a conversa existe)
+        // cidadão reabre o atendimento concluído, uma única vez e até 30 dias após a conclusão (enquanto a conversa existe).
+        // Pedido de acesso à informação (LAI): é o RECURSO (Lei 12.527/2011, art. 15): até 10 dias depois da resposta ou da conclusão.
         (resource.data.autorUid == request.auth.uid
-          && resource.data.status == 'concluido'
           && !resource.data.keys().hasAny(['reabertoEm', 'apagada'])
-          && request.time < resource.data.concluidoEm + duration.value(30, 'd')
+          && ((resource.data.tipo != 'lai' && resource.data.status == 'concluido'
+                && request.time < resource.data.concluidoEm + duration.value(30, 'd'))
+              || (resource.data.tipo == 'lai' && resource.data.status == 'respondido'
+                && request.time < resource.data.respondidoEm + duration.value(10, 'd'))
+              || (resource.data.tipo == 'lai' && resource.data.status == 'concluido'
+                && request.time < resource.data.concluidoEm + duration.value(10, 'd')))
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reabertoEm', 'ultimaMsgPor'])
           && request.resource.data.status == 'aberto'
           && request.resource.data.reabertoEm == request.time
@@ -303,7 +308,7 @@ service cloud.firestore {
         (ehServidor() && resource.data.secretariaId == minhaSecretaria()
           && resource.data.status == 'aberto'
           && !resource.data.keys().hasAny(['prorrogadoEm'])
-          && request.time <= resource.data.criadoEm + duration.value(30, 'd')
+          && request.time <= resource.data.criadoEm + duration.value(resource.data.tipo == 'lai' ? 20 : 30, 'd')
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['prorrogadoEm', 'prorrogacaoMotivo', 'prorrogacaoPor'])
           && request.resource.data.prorrogadoEm == request.time
           && request.resource.data.prorrogacaoMotivo is string
@@ -430,7 +435,7 @@ service cloud.firestore {
     match /consulta/{numero} {
       function espelhoOk() {
         let p = getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data;
-        return request.resource.data.keys().hasOnly(['status', 'secretariaNome', 'criadoEm', 'respondidoEm', 'concluidoEm', 'prorrogadoEm', 'reabertoEm', 'aguardandoDesde', 'suspensoDias'])
+        return request.resource.data.keys().hasOnly(['status', 'secretariaNome', 'criadoEm', 'respondidoEm', 'concluidoEm', 'prorrogadoEm', 'reabertoEm', 'aguardandoDesde', 'suspensoDias', 'lai'])
           && request.resource.data.status == p.status
           && request.resource.data.secretariaNome == p.secretariaNome
           && request.resource.data.criadoEm == p.criadoEm
@@ -439,7 +444,8 @@ service cloud.firestore {
           && request.resource.data.get('prorrogadoEm', null) == p.get('prorrogadoEm', null)
           && request.resource.data.get('reabertoEm', null) == p.get('reabertoEm', null)
           && request.resource.data.get('aguardandoDesde', null) == p.get('aguardandoDesde', null)
-          && request.resource.data.get('suspensoDias', null) == p.get('suspensoDias', null);
+          && request.resource.data.get('suspensoDias', null) == p.get('suspensoDias', null)
+          && request.resource.data.get('lai', false) == (p.tipo == 'lai');
       }
       allow get: if true;
       allow list: if false;

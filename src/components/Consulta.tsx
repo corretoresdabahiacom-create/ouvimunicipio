@@ -33,7 +33,7 @@ export function PaginaConsulta() {
     finally { setOcupado(false); }
   }
 
-  const comoProtocolo = ficha as unknown as Protocolo | null;
+  const comoProtocolo = ficha ? ({ ...ficha, tipo: ficha.lai ? "lai" : undefined } as unknown as Protocolo) : null;
   const prazo = comoProtocolo && ficha?.status === "aberto" ? rotuloPrazo(comoProtocolo) : null;
   return (
     <div className="mx-auto min-h-dvh max-w-xl space-y-4 p-4">
@@ -60,7 +60,7 @@ export function PaginaConsulta() {
         {msg && <Aviso>{msg}</Aviso>}
         {ficha && (
           <Cartao className="space-y-2">
-            <div className="flex items-center justify-between gap-2"><span className="font-mono text-sm">{numero.trim().toUpperCase()}</span><Selo status={ficha.status} p={ficha as unknown as Protocolo} /></div>
+            <div className="flex items-center justify-between gap-2"><span className="font-mono text-sm">{numero.trim().toUpperCase()}</span><Selo status={ficha.status} p={comoProtocolo ?? undefined} /></div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
               <dt className="text-slate-600">Secretaria</dt><dd>{ficha.secretariaNome}</dd>
               <dt className="text-slate-600">Enviado em</dt><dd>{dataBR(ficha.criadoEm)}</dd>

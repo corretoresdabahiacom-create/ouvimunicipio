@@ -59,3 +59,13 @@ test("depois de reaberto o prazo conta de novo a partir da reabertura", () => {
 test("a espera só vale com o protocolo ainda aberto", () => {
   assert.equal(prazoFinal(P("a", 10, { status: "respondido", aguardandoDesde: criado(3) }), agora), criado(10) + 30 * DIA);
 });
+
+test("pedido de acesso à informação (LAI): 20 dias, +10 se prorrogado; recurso decidido em 5 dias", () => {
+  const L = (diasAtras, extra = {}) => P("lai", diasAtras, { tipo: "lai", ...extra });
+  assert.equal(nivelPrazo(L(21), agora), "vencido");          // uma manifestação comum de 21 dias ainda está em dia
+  assert.equal(nivelPrazo(P("c", 21), agora), "dez");
+  assert.equal(nivelPrazo(L(25, { prorrogadoEm: criado(3) }), agora), "cinco"); // 20 + 10 = 30 dias
+  assert.equal(nivelPrazo(L(100, { reabertoEm: criado(6) }), agora), "vencido"); // recurso: 5 dias
+  assert.equal(nivelPrazo(L(100, { reabertoEm: criado(1) }), agora), "cinco");
+  assert.equal(nivelPrazo(L(100, { reabertoEm: criado(3) }), agora), "dois");
+});
