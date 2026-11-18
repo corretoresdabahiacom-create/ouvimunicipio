@@ -230,7 +230,8 @@ service cloud.firestore {
         // servidor da secretaria responde (a 1ª resposta marca "respondido" e a data)
         (ehServidor() && resource.data.secretariaId == minhaSecretaria()
           && resource.data.status in ['aberto', 'respondido']
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondidoEm', 'ultimaMsgPor'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondidoEm', 'ultimaMsgPor', 'aguardandoDesde'])
+          && !('aguardandoDesde' in request.resource.data)
           && request.resource.data.status == 'respondido'
           && request.resource.data.ultimaMsgPor == 'servidor'
           && request.resource.data.respondidoEm == (resource.data.status == 'aberto' ? request.time : resource.data.respondidoEm))
@@ -238,8 +239,46 @@ service cloud.firestore {
         // cidadão complementa a conversa
         (resource.data.autorUid == request.auth.uid
           && resource.data.status in ['aberto', 'respondido']
+          && !resource.data.keys().hasAny(['aguardandoDesde'])
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimaMsgPor'])
           && request.resource.data.ultimaMsgPor == 'cidadao')
+        ||
+        // cidadão responde ao pedido de informações: o prazo volta a correr; os dias de espera (no máximo 20) são somados ao prazo
+        (resource.data.autorUid == request.auth.uid
+          && resource.data.status == 'aberto'
+          && resource.data.keys().hasAny(['aguardandoDesde'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimaMsgPor', 'aguardandoDesde', 'suspensoDias'])
+          && !('aguardandoDesde' in request.resource.data)
+          && request.resource.data.ultimaMsgPor == 'cidadao'
+          && request.resource.data.suspensoDias is int
+          && request.resource.data.suspensoDias >= resource.data.get('suspensoDias', 0)
+          && request.resource.data.suspensoDias <= resource.data.get('suspensoDias', 0) + 20)
+        ||
+        // cidadão reabre o atendimento concluído, uma única vez e até 30 dias após a conclusão (enquanto a conversa existe)
+        (resource.data.autorUid == request.auth.uid
+          && resource.data.status == 'concluido'
+          && !resource.data.keys().hasAny(['reabertoEm', 'apagada'])
+          && request.time < resource.data.concluidoEm + duration.value(30, 'd')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reabertoEm', 'ultimaMsgPor'])
+          && request.resource.data.status == 'aberto'
+          && request.resource.data.reabertoEm == request.time
+          && request.resource.data.ultimaMsgPor == 'cidadao')
+        ||
+        // servidor pede informações ao cidadão (antes da 1ª resposta): o prazo fica suspenso até ele responder (no máximo 20 dias), até 2 vezes
+        (ehServidor() && resource.data.secretariaId == minhaSecretaria()
+          && resource.data.status == 'aberto'
+          && !resource.data.keys().hasAny(['aguardandoDesde'])
+          && resource.data.get('pedidosInfo', 0) < 2
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['aguardandoDesde', 'pedidosInfo', 'ultimaMsgPor'])
+          && request.resource.data.aguardandoDesde == request.time
+          && request.resource.data.pedidosInfo == resource.data.get('pedidosInfo', 0) + 1
+          && request.resource.data.ultimaMsgPor == 'servidor')
+        ||
+        // o ouvidor geral marca o protocolo "em triagem" (está analisando para encaminhar), uma vez
+        (ehOuvidor() && resource.data.status == 'aberto'
+          && !resource.data.keys().hasAny(['triagemEm'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['triagemEm'])
+          && request.resource.data.triagemEm == request.time)
         ||
         // concluir (cidadão ou servidor, depois da 1ª resposta); só o cidadão pode dar nota (1 a 5), uma vez
         ((resource.data.autorUid == request.auth.uid || (ehServidor() && resource.data.secretariaId == minhaSecretaria()))
@@ -323,7 +362,9 @@ service cloud.firestore {
               && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.criadoEm == request.time)
             ||
             (msg != 'm00' && !request.resource.data.keys().hasAny(['assunto'])
-              && pai().status in ['aberto', 'respondido']
+              && (pai().status in ['aberto', 'respondido']
+                  || (pai().status == 'concluido'
+                      && getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data.get('reabertoEm', null) == request.time))
               && ((request.resource.data.de == 'cidadao' && pai().autorUid == request.auth.uid
                     && meuPerfilDepois().get('ultimoEnvio', '') == numero + '/' + msg)
                   || (request.resource.data.de == 'servidor' && ehServidor() && pai().secretariaId == minhaSecretaria())))
@@ -389,13 +430,16 @@ service cloud.firestore {
     match /consulta/{numero} {
       function espelhoOk() {
         let p = getAfter(/databases/$(database)/documents/municipios/$(mid)/protocolos/$(numero)).data;
-        return request.resource.data.keys().hasOnly(['status', 'secretariaNome', 'criadoEm', 'respondidoEm', 'concluidoEm', 'prorrogadoEm'])
+        return request.resource.data.keys().hasOnly(['status', 'secretariaNome', 'criadoEm', 'respondidoEm', 'concluidoEm', 'prorrogadoEm', 'reabertoEm', 'aguardandoDesde', 'suspensoDias'])
           && request.resource.data.status == p.status
           && request.resource.data.secretariaNome == p.secretariaNome
           && request.resource.data.criadoEm == p.criadoEm
           && request.resource.data.get('respondidoEm', null) == p.get('respondidoEm', null)
           && request.resource.data.get('concluidoEm', null) == p.get('concluidoEm', null)
-          && request.resource.data.get('prorrogadoEm', null) == p.get('prorrogadoEm', null);
+          && request.resource.data.get('prorrogadoEm', null) == p.get('prorrogadoEm', null)
+          && request.resource.data.get('reabertoEm', null) == p.get('reabertoEm', null)
+          && request.resource.data.get('aguardandoDesde', null) == p.get('aguardandoDesde', null)
+          && request.resource.data.get('suspensoDias', null) == p.get('suspensoDias', null);
       }
       allow get: if true;
       allow list: if false;

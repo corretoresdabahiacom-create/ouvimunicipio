@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, beforeEach, describe, test } from "vitest";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch, type WriteBatch } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch, type WriteBatch } from "firebase/firestore";
 
 let env: RulesTestEnvironment;
 type Db = ReturnType<ReturnType<RulesTestEnvironment["authenticatedContext"]>["firestore"]>;
@@ -1081,6 +1081,165 @@ describe("Padrão: tudo que não foi liberado está negado", () => {
   test("coleção desconhecida", async () => {
     await assertFails(setDoc(doc(adm(), "municipios/a/qualquer/coisa"), { a: 1 }));
     await assertFails(getDoc(doc(adm(), "municipios/a/qualquer/coisa")));
+  });
+});
+
+// =====================================================================
+describe("23. Status extras: em triagem, aguardando informações (prazo suspenso) e reaberto", () => {
+  const P = () => "municipios/a/protocolos";
+  const msgServidor = (db: Db, idx: string) => ({ ref: doc(db, P(), NUM, "mensagens", `m${idx}`), dados: { de: "servidor", autorUid: "sam", texto: "Qual o endereço exato?", anexos: [], criadoEm: serverTimestamp() } });
+  const pedirInfo = (db: Db, extra: Record<string, unknown> = {}, pedidosAntes = 0) => {
+    const b = writeBatch(db);
+    const m = msgServidor(db, "01");
+    b.set(m.ref, m.dados);
+    b.update(doc(db, P(), NUM), { aguardandoDesde: serverTimestamp(), pedidosInfo: pedidosAntes + 1, ultimaMsgPor: "servidor", ...extra });
+    return b;
+  };
+  const responderPedido = (db: Db, dias: number, c?: Contador) => {
+    const b = writeBatch(db);
+    contar(b, db, "ana", `${NUM}/m02`, c);
+    b.set(doc(db, P(), NUM, "mensagens", "m02"), { de: "cidadao", autorUid: "ana", texto: "Rua das Flores, 10.", anexos: [], criadoEm: serverTimestamp() });
+    b.update(doc(db, P(), NUM), { ultimaMsgPor: "cidadao", aguardandoDesde: deleteField(), suspensoDias: dias });
+    return b;
+  };
+  const aguardando = { aguardandoDesde: Timestamp.now(), pedidosInfo: 1, ultimaMsgPor: "servidor" };
+
+  describe("em triagem (ouvidor geral)", () => {
+    test("o ouvidor marca em triagem uma vez; a data é a do servidor", async () => {
+      await semearProtocolo();
+      await assertSucceeds(updateDoc(doc(olga(), P(), NUM), { triagemEm: serverTimestamp() }));
+      await assertFails(updateDoc(doc(olga(), P(), NUM), { triagemEm: serverTimestamp() }));
+    });
+    test("data do aparelho, outros papéis e protocolo já respondido são recusados", async () => {
+      await semearProtocolo();
+      await assertFails(updateDoc(doc(olga(), P(), NUM), { triagemEm: Timestamp.fromMillis(Date.now() - DIA) }));
+      await assertFails(updateDoc(doc(sam(), P(), NUM), { triagemEm: serverTimestamp() }));
+      await assertFails(updateDoc(doc(ana(), P(), NUM), { triagemEm: serverTimestamp() }));
+      await assertFails(updateDoc(doc(adm(), P(), NUM), { triagemEm: serverTimestamp() }));
+      await env.clearFirestore(); await semearBase(); await semearProtocolo(respondido);
+      await assertFails(updateDoc(doc(olga(), P(), NUM), { triagemEm: serverTimestamp() }));
+    });
+  });
+
+  describe("aguardando informações", () => {
+    test("o servidor da secretaria pede informações, com a mensagem, e o prazo fica suspenso", async () => {
+      await semearProtocolo();
+      await assertSucceeds(pedirInfo(sam()).commit());
+    });
+    test("só 2 pedidos; não vale duas vezes seguidas; só servidor da secretaria; data do servidor", async () => {
+      await semearProtocolo();
+      await assertFails(pedirInfo(sol()).commit());
+      await assertFails(pedirInfo(ana()).commit());
+      await assertFails(pedirInfo(sam(), { aguardandoDesde: Timestamp.fromMillis(Date.now() + DIA) }).commit());
+      await assertFails(pedirInfo(sam(), {}, 2).commit());
+      await assertFails(pedirInfo(sam(), { pedidosInfo: 5 }).commit());
+      await assertSucceeds(pedirInfo(sam()).commit());
+      await assertFails(updateDoc(doc(sam(), P(), NUM), { aguardandoDesde: serverTimestamp(), pedidosInfo: 2, ultimaMsgPor: "servidor" }));
+    });
+    test("depois da 1ª resposta não se pede informação (o prazo já foi cumprido)", async () => {
+      await semearProtocolo(respondido);
+      await assertFails(updateDoc(doc(sam(), P(), NUM), { aguardandoDesde: serverTimestamp(), pedidosInfo: 1, ultimaMsgPor: "servidor" }));
+    });
+    test("o cidadão responde, o pedido é encerrado e os dias de espera (até 20) entram no prazo", async () => {
+      await semearProtocolo(aguardando);
+      await assertSucceeds(responderPedido(ana(), 6).commit());
+      const p = (await getDoc(doc(ana(), P(), NUM))).data()!;
+      if (p.aguardandoDesde !== undefined || p.suspensoDias !== 6) throw new Error("o pedido deveria estar encerrado com 6 dias");
+    });
+    test("não dá para suspender por mais de 20 dias, nem diminuir o que já foi somado, nem responder sem registrar o envio", async () => {
+      await semearProtocolo({ ...aguardando, suspensoDias: 5 });
+      await assertFails(responderPedido(ana(), 26).commit());
+      await assertFails(responderPedido(ana(), 4).commit());
+      await assertFails(responderPedido(ana(), 10, { sem: true }).commit());
+      await assertSucceeds(responderPedido(ana(), 25).commit());
+    });
+    test("outro cidadão e a equipe não encerram o pedido pelo cidadão", async () => {
+      await semearProtocolo(aguardando);
+      await assertFails(updateDoc(doc(beto(), P(), NUM), { ultimaMsgPor: "cidadao", aguardandoDesde: deleteField(), suspensoDias: 0 }));
+      await assertFails(updateDoc(doc(sam(), P(), NUM), { aguardandoDesde: deleteField(), suspensoDias: 0 }));
+    });
+    test("quando o servidor responde de vez, o 'aguardando' é encerrado e a conversa segue normal", async () => {
+      await semearProtocolo(aguardando);
+      const db = sam();
+      const b = writeBatch(db);
+      const m = msgServidor(db, "01");
+      b.set(m.ref, { ...m.dados, texto: "Resolvido." });
+      b.update(doc(db, P(), NUM), { status: "respondido", ultimaMsgPor: "servidor", respondidoEm: serverTimestamp(), aguardandoDesde: deleteField() });
+      await assertSucceeds(b.commit());
+      // sem apagar o marcador, a resposta é recusada (não deixa estado antigo para trás)
+      await env.clearFirestore(); await semearBase(); await semearProtocolo(aguardando);
+      await assertFails(respostaServidor(sam()).commit());
+    });
+    test("depois que já tinha respondido, o cidadão complementa normalmente", async () => {
+      await semearProtocolo({ ...respondido, suspensoDias: 3 });
+      const b = writeBatch(ana());
+      contar(b, ana(), "ana", `${NUM}/m01`);
+      b.set(doc(ana(), P(), NUM, "mensagens", "m01"), { de: "cidadao", autorUid: "ana", texto: "Obrigada, mas ainda falta.", anexos: [], criadoEm: serverTimestamp() });
+      b.update(doc(ana(), P(), NUM), { ultimaMsgPor: "cidadao" });
+      await assertSucceeds(b.commit());
+    });
+  });
+
+  describe("reaberto (cidadão)", () => {
+    const reabrir = (db: Db, o: { uid?: string; sem?: boolean; extra?: Record<string, unknown>; msg?: boolean } = {}) => {
+      const uid = o.uid ?? "ana";
+      const b = writeBatch(db);
+      if (!o.sem) contar(b, db, uid, `${NUM}/m02`);
+      if (o.msg !== false) b.set(doc(db, P(), NUM, "mensagens", "m02"), { de: "cidadao", autorUid: uid, texto: "O problema voltou.", anexos: [], criadoEm: serverTimestamp() });
+      b.update(doc(db, P(), NUM), { status: "aberto", reabertoEm: serverTimestamp(), ultimaMsgPor: "cidadao", ...(o.extra ?? {}) });
+      return b;
+    };
+    test("o autor reabre um atendimento concluído há pouco, com uma mensagem", async () => {
+      await semearProtocolo(concluidoHa(5));
+      await assertSucceeds(reabrir(ana()).commit());
+      const p = (await getDoc(doc(ana(), P(), NUM))).data()!;
+      if (p.status !== "aberto" || !p.reabertoEm) throw new Error("deveria estar reaberto");
+    });
+    test("depois de reaberto, a secretaria responde e o cidadão conclui de novo; mas só reabre uma vez", async () => {
+      await semearProtocolo(concluidoHa(5));
+      await assertSucceeds(reabrir(ana()).commit());
+      const r = writeBatch(sam());
+      r.set(doc(sam(), P(), NUM, "mensagens", "m03"), { de: "servidor", autorUid: "sam", texto: "Voltamos a resolver.", anexos: [], criadoEm: serverTimestamp() });
+      r.update(doc(sam(), P(), NUM), { status: "respondido", ultimaMsgPor: "servidor", respondidoEm: serverTimestamp() });
+      await assertSucceeds(r.commit());
+      await assertSucceeds(updateDoc(doc(ana(), P(), NUM), { status: "concluido", concluidoEm: serverTimestamp() }));
+      await assertFails(reabrir(ana()).commit());
+    });
+    test("não reabre depois de 30 dias, depois que a conversa foi apagada, nem protocolo alheio ou ainda em andamento", async () => {
+      await semearProtocolo(concluidoHa(31));
+      await assertFails(reabrir(ana()).commit());
+      await env.clearFirestore(); await semearBase(); await semearProtocolo({ ...concluidoHa(5), apagada: true });
+      await assertFails(reabrir(ana()).commit());
+      await env.clearFirestore(); await semearBase(); await semearProtocolo(concluidoHa(5));
+      await assertFails(reabrir(beto(), { uid: "beto" }).commit());
+      await assertFails(reabrir(sam()).commit());
+      await env.clearFirestore(); await semearBase(); await semearProtocolo(respondido);
+      await assertFails(reabrir(ana()).commit());
+    });
+    test("reabrir exige registrar o envio e a data é a do servidor", async () => {
+      await semearProtocolo(concluidoHa(5));
+      await assertFails(reabrir(ana(), { sem: true }).commit());
+      await assertFails(reabrir(ana(), { extra: { reabertoEm: Timestamp.fromMillis(Date.now() + DIA) } }).commit());
+      await assertFails(reabrir(ana(), { extra: { respondidoEm: serverTimestamp() } }).commit());
+    });
+    test("a mensagem do cidadão em protocolo concluído, sem reabrir, é recusada", async () => {
+      await semearProtocolo(concluidoHa(5));
+      const b = writeBatch(ana());
+      contar(b, ana(), "ana", `${NUM}/m02`);
+      b.set(doc(ana(), P(), NUM, "mensagens", "m02"), { de: "cidadao", autorUid: "ana", texto: "Posso escrever?", anexos: [], criadoEm: serverTimestamp() });
+      await assertFails(b.commit());
+    });
+  });
+
+  describe("ficha pública acompanha os novos campos", () => {
+    test("cópia fiel com 'aguardandoDesde' e 'suspensoDias' é aceita; valor falso é recusado", async () => {
+      await semearProtocolo({ aguardandoDesde: Timestamp.now(), pedidosInfo: 1, suspensoDias: 4, ultimaMsgPor: "servidor" });
+      const p = (await getDoc(doc(ana(), P(), NUM))).data()!;
+      const base = { status: p.status, secretariaNome: p.secretariaNome, criadoEm: p.criadoEm };
+      await assertSucceeds(setDoc(doc(ana(), "municipios/a/consulta", NUM), { ...base, aguardandoDesde: p.aguardandoDesde, suspensoDias: 4 }));
+      await assertFails(setDoc(doc(ana(), "municipios/a/consulta", NUM), { ...base, aguardandoDesde: p.aguardandoDesde, suspensoDias: 0 }));
+      await assertFails(setDoc(doc(ana(), "municipios/a/consulta", NUM), { ...base }));
+    });
   });
 });
 
