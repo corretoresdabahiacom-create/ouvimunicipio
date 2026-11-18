@@ -3,7 +3,7 @@
 // Só aceita pedidos de um ADMIN com e-mail confirmado: valida o ID token do Firebase
 // e confirma o papel lendo equipe/{email} no Firestore COM o token do próprio usuário
 // (as regras do Firestore é que decidem; nenhuma chave privada é necessária).
-import { exigirAdmin, resp, esc } from "../_comum";
+import { exigirAdmin, resp, esc, limitar, MUITAS } from "../_comum";
 
 interface Env {
   FIREBASE_PROJECT_ID: string;
@@ -37,6 +37,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const body: any = await request.json().catch(() => ({}));
     const adm = await exigirAdmin(request, env.FIREBASE_PROJECT_ID, body.municipio);
     if (adm instanceof Response) return adm;
+    if (!limitar(`aud:${adm.municipio}:${adm.email}`, 60, 600_000)) return MUITAS();
 
     const titulo = ACOES[String(body.acao)];
     if (!titulo) return resp(400, { error: "Ação inválida." });

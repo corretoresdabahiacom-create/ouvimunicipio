@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, deleteDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { Pencil, Trash2 } from "lucide-react";
-import { db } from "../lib/firebase";
+
 import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";

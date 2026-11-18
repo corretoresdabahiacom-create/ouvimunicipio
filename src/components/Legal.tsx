@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { serverTimestamp, updateDoc } from "firebase/firestore";
+
 import { docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";

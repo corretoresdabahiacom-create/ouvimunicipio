@@ -3,7 +3,7 @@ import { AlertTriangle } from "lucide-react";
 import { useAuth } from "../lib/useAuth";
 import { TIPOS, type Protocolo } from "../lib/types";
 import { Aviso, Carregando, Cartao, Selo, dataBR, nivelPrazo, rotuloPrazo } from "./ui";
-import { usarProtocolos } from "./Cidadao";
+import { useProtocolos } from "./Cidadao";
 import { ProtocoloDetalhe, useLimpezaConversas } from "./Conversa";
 import { VistaMapa } from "./VistaMapa";
 import { GerirModelos } from "./Modelos";
@@ -15,7 +15,7 @@ const aguardando = (p: Protocolo) => p.status === "aberto" || (p.status === "res
 
 export function PainelSecretaria() {
   const { perfil } = useAuth();
-  const { lista, erro } = usarProtocolos("secretariaId", perfil?.secretariaId);
+  const { lista, erro } = useProtocolos("secretariaId", perfil?.secretariaId);
   useLimpezaConversas(lista);
   const [aba, setAba] = useState<Aba>("aguardando");
   const [sel, setSel] = useState<string | null>(null);

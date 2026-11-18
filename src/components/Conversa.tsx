@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type WriteBatch,
+  doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type WriteBatch,
 } from "firebase/firestore";
 import { ArrowLeft, MapPin, Paperclip, Send, Star, X } from "lucide-react";
 import { db } from "../lib/firebase";

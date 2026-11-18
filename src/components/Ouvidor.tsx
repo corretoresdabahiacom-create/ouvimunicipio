@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
+import { getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
 import { AlertTriangle, BellRing, FileText, RefreshCw, Search, Send } from "lucide-react";
 import { db } from "../lib/firebase";
 import { colM, docM } from "../lib/municipio";
@@ -15,7 +15,7 @@ import { sincronizarFicha } from "../lib/consulta";
 
 const LIMITE_LEITURA = 1000; // protege a cota gratuita do Firestore
 
-function usarTodos() {
+function useTodos() {
   const [lista, setLista] = useState<Protocolo[] | null>(null);
   const [erro, setErro] = useState("");
   useEffect(() => onSnapshot(query(colM("protocolos"), orderBy("criadoEm", "desc"), limit(LIMITE_LEITURA)),
@@ -24,7 +24,7 @@ function usarTodos() {
   return { lista, erro };
 }
 
-function usarSecretarias() {
+function useSecretarias() {
   const [lista, setLista] = useState<Secretaria[]>([]);
   useEffect(() => onSnapshot(colM("secretarias"),
     (s) => setLista(s.docs.map((d) => ({ id: d.id, nome: String(d.data().nome), ativa: d.data().ativa === true }))
@@ -104,8 +104,8 @@ function Acoes({ p, secretarias }: { p: Protocolo; secretarias: Secretaria[] }) 
 // ---------- painel ----------
 export function PainelOuvidor() {
   const { perfil } = useAuth();
-  const { lista, erro } = usarTodos();
-  const secretarias = usarSecretarias();
+  const { lista, erro } = useTodos();
+  const secretarias = useSecretarias();
   const [sel, setSel] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [fSec, setFSec] = useState("");

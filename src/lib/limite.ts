@@ -2,8 +2,8 @@
 // Cada manifestação nova ou complemento do cidadão conta 1 envio. Máximo de LIMITE_ENVIOS_DIA a cada 24 h,
 // contados a partir do primeiro envio da janela. As regras do Firestore EXIGEM esta atualização no mesmo
 // lote do envio (ver firestore.rules, "limite de envios"), então não dá para burlar pelo navegador.
-import { doc, getDoc, serverTimestamp, type WriteBatch } from "firebase/firestore";
-import { db } from "./firebase";
+import { getDoc, serverTimestamp, type WriteBatch } from "firebase/firestore";
+
 import { docM } from "./municipio";
 
 export const LIMITE_ENVIOS_DIA = 20;
