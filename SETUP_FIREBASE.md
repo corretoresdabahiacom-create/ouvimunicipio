@@ -34,6 +34,10 @@ Remover ou desativar o cadastro tira o acesso na hora.
   - `RESEND_FROM` (opcional) = remetente de domínio verificado; sem isso o Resend só entrega ao dono da conta
   - `NOME_ORGAO` (opcional) = nome no rodapé dos e-mails enviados aos usuários
   - `VITE_MUNICIPIO_PADRAO` (opcional, de *build*) = município aberto quando o endereço é só `/`
+  - `VITE_CONTATO_SUPERADMIN` (opcional, de *build*) = e-mail que aparece no painel do administrador para pedir a exclusão do município
+- **Limite de chamadas (recomendado):** as funções já barram abusos simples (10 envios em massa e 60 registros de auditoria a cada
+  10 min por administrador), mas a contagem é por servidor. Para um limite exato, no painel do Cloudflare crie uma
+  *Regra de limitação de taxa* (Security → WAF → Rate limiting rules) para o caminho `/api/` (ex.: 30 pedidos por minuto por IP).
 
 ## Limites de mídia (guardada no próprio Firestore)
 - Fotos reduzidas automaticamente (~700 KB cada). Vídeos até 7 MB (clipes curtos). Soma por mensagem: 7 MB. Máx. 5 anexos.
@@ -78,6 +82,10 @@ Rodam no GitHub Actions (`.github/workflows/alertas-prazo.yml`), de segunda a se
 - **Suspender/Reativar:** pausa temporária. Ninguém cria contas nem manifestações; os dados ficam intactos.
 - **Excluir:** definitivo pelo painel (pede para digitar o endereço). O município some da lista, ninguém mais acessa e o
   endereço nunca mais pode ser usado (assim um município novo não herda os dados do antigo). Os dados continuam guardados.
+- **Administradores:** no botão **Administradores** de cada município você vê quem administra, **desativa/reativa** (tira o acesso na hora)
+  e **remove**. Para corrigir um e-mail errado: cadastre o certo em "Administrador do município" e remova o errado.
+  O administrador (servidor ou prefeito) **não exclui** o município: ele pede por e-mail ao superadmin.
 - **Apagar os dados de vez** (depois de excluir): com a chave da conta de serviço, na pasta `scripts`:
   `node apagar-municipio.mjs alagoinhas` (mostra quantos documentos) e
-  `node apagar-municipio.mjs alagoinhas --confirmar alagoinhas` (faz backup `.ndjson` e apaga). Os logins não são apagados.
+  `node apagar-municipio.mjs alagoinhas --confirmar alagoinhas` (faz backup `.ndjson` e apaga). Acrescente `--logins` para apagar também os **logins** (Authentication) das pessoas desse município;
+  só apaga quem não tem cadastro em outro município e nunca um superadmin. Sem `--confirmar`, só mostra quem seria apagado.

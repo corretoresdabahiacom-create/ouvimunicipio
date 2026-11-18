@@ -10,7 +10,7 @@ import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
 import { sincronizarFicha } from "../lib/consulta";
 import {
-  MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, juntarPartes, tipoDe,
+  MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, identificar, juntarPartes, tipoDe,
 } from "../lib/media";
 import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
 import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
@@ -56,22 +56,24 @@ export function useLimpezaConversas(lista: Protocolo[] | null) {
 }
 
 // ---------- anexos ----------
-interface Escolhido { file: File; tipo: "imagem" | "video" }
+interface Escolhido { file: File; tipo: "imagem" | "video"; mime: string }
 
 export function useAnexos() {
   const [arquivos, setArquivos] = useState<Escolhido[]>([]);
   const [erro, setErro] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function adicionar(lista: FileList | null) {
+  async function adicionar(lista: FileList | null) {
     if (!lista) return;
     setErro("");
     const novos: Escolhido[] = [];
     for (const file of Array.from(lista)) {
       const tipo = tipoDe(file);
-      if (!tipo) { setErro(`"${file.name}": use imagem (JPG/PNG/WebP) ou vídeo (MP4/WebM).`); continue; }
+      // confere o conteúdo real: um arquivo com nome ou tipo trocado (ex.: um .exe chamado foto.jpg) é recusado
+      const real = tipo ? await identificar(file) : null;
+      if (!tipo || !real || real.tipo !== tipo) { setErro(`"${file.name}": use imagem (JPG/PNG/WebP) ou vídeo (MP4/WebM). O conteúdo do arquivo não confere.`); continue; }
       if (tipo === "video" && file.size > MAX_VIDEO_BYTES) { setErro(`"${file.name}": o vídeo deve ter até ${formatarBytes(MAX_VIDEO_BYTES)}. Grave um vídeo mais curto.`); continue; }
-      novos.push({ file, tipo });
+      novos.push({ file, tipo, mime: real.mime });
     }
     const todos = [...arquivos, ...novos];
     if (todos.length > MAX_ANEXOS) { setErro(`No máximo ${MAX_ANEXOS} anexos.`); return; }
@@ -85,7 +87,7 @@ export function SeletorAnexos({ a }: { a: ReturnType<typeof useAnexos> }) {
   return (
     <div>
       <input ref={a.inputRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" multiple hidden
-        onChange={(e) => a.adicionar(e.target.files)} />
+        onChange={(e) => void a.adicionar(e.target.files)} />
       <Botao type="button" variante="secundario" onClick={() => a.inputRef.current?.click()} disabled={a.arquivos.length >= MAX_ANEXOS}>
         <Paperclip className="size-4" aria-hidden /> Anexar foto ou vídeo
       </Botao>
@@ -116,7 +118,7 @@ export async function prepararAnexos(arquivos: Escolhido[], msg: string): Promis
     if (total > MAX_TOTAL_BYTES) throw new Error(`Os anexos somam mais de ${formatarBytes(MAX_TOTAL_BYTES)}. Remova algum.`);
     const partes = await dividirEmPartes(blob);
     out.push({
-      meta: { k: `${msg}_${i}`, nome: file.name.slice(0, 100), tipo, mime: tipo === "imagem" ? "image/jpeg" : file.type, partes: partes.length, bytes: blob.size },
+      meta: { k: `${msg}_${i}`, nome: file.name.slice(0, 100), tipo, mime: tipo === "imagem" ? "image/jpeg" : arquivos[i].mime, partes: partes.length, bytes: blob.size },
       partes,
     });
   }

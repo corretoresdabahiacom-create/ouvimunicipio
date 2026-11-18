@@ -19,5 +19,7 @@ npm install
 npm run dev      # desenvolvimento
 npm run build    # gera dist/
 npm run lint     # verificação de tipos
+npm run lint:codigo   # ESLint
+npm test         # testes das funções e das telas
 cd rules-tests && npm test   # testes das regras (precisa de Java 21)
 ```
