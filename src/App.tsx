@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BarChart3, Bell, FilePlus2, Inbox, LogOut, QrCode, Settings, UserRound } from "lucide-react";
 import { AuthProvider, useAuth } from "./lib/useAuth";
 import { TelaAuth, TelaConfirmarEmail } from "./components/Auth";
@@ -18,7 +18,7 @@ import { MunicipioProvider, Raiz0, rotaAtual } from "./lib/municipio";
 const PaginaTransparencia = lazy(() => import("./components/Transparencia").then((m) => ({ default: m.PaginaTransparencia })));
 const PaginaConsulta = lazy(() => import("./components/Consulta").then((m) => ({ default: m.PaginaConsulta })));
 const PainelSuperAdmin = lazy(() => import("./components/SuperAdmin").then((m) => ({ default: m.PainelSuperAdmin })));
-import { Aviso, Botao, Carregando, Cartao } from "./components/ui";
+import { Aviso, Botao, BotaoVoltar, Carregando, Cartao } from "./components/ui";
 
 type Aba = "nova" | "protocolos" | "avisos" | "painel" | "ouvidoria" | "prefeito" | "admin" | "perfil" | "instalar";
 
@@ -32,6 +32,23 @@ function Shell() {
   const [aba, setAba] = useState<Aba>(ehAdmin ? "admin" : ehServidor ? "painel" : ehOuvidor ? "ouvidoria" : ehPrefeito ? "prefeito" : "nova");
   const [protocoloSel, setProtocoloSel] = useState<string | null>(null);
   const [concluido, setConcluido] = useState<string | null>(null);
+  // Histórico das abas: o botão "Voltar" e o voltar do celular retornam à tela anterior em vez de sair do app.
+  const anteriores = useRef<Aba[]>([]);
+  function ir(nova: Aba) {
+    if (nova === aba) return;
+    anteriores.current.push(aba);
+    if (anteriores.current.length > 30) anteriores.current.shift();
+    history.pushState({ ouvidoriaAba: nova }, "");
+    setAba(nova);
+  }
+  useEffect(() => {
+    const aoVoltar = () => {
+      const anterior = anteriores.current.pop();
+      if (anterior) { setAba(anterior); setProtocoloSel(null); setConcluido(null); }
+    };
+    addEventListener("popstate", aoVoltar);
+    return () => removeEventListener("popstate", aoVoltar);
+  }, []);
   const { visiveis } = usarNotificacoes();
 
   const itens: { id: Aba; rotulo: string; Icone: typeof Bell; mostrar: boolean; badge?: number }[] = [
@@ -46,7 +63,7 @@ function Shell() {
     { id: "instalar", rotulo: "Instalar", Icone: QrCode, mostrar: true },
   ];
 
-  function abrirProtocolo(id: string) { setProtocoloSel(id); setAba("protocolos"); }
+  function abrirProtocolo(id: string) { setProtocoloSel(id); ir("protocolos"); }
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
@@ -61,13 +78,14 @@ function Shell() {
 
       <a href="#conteudo" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2">Pular para o conteúdo</a>
       <main id="conteudo" tabIndex={-1} className="flex-1 space-y-4 p-4 pb-24 outline-none">
+        {anteriores.current.length > 0 && <div className="-mb-2"><BotaoVoltar onClick={() => history.back()} /></div>}
         {!interno && (aba === "nova" || aba === "protocolos" || aba === "avisos") && !protocoloSel && <Carrossel />}
         <Suspense fallback={<Carregando />}>
         {concluido && aba === "nova" ? (
           <Cartao className="space-y-3 text-center">
             <Aviso tipo="ok">Mensagem enviada! Seu protocolo é <b className="font-mono">{concluido}</b>. A secretaria tem até 30 dias para responder.</Aviso>
             <div className="flex justify-center gap-2">
-              <Botao onClick={() => { setProtocoloSel(concluido); setConcluido(null); setAba("protocolos"); }}>Ver protocolo</Botao>
+              <Botao onClick={() => { setProtocoloSel(concluido); setConcluido(null); ir("protocolos"); }}>Ver protocolo</Botao>
               <Botao variante="secundario" onClick={() => setConcluido(null)}>Enviar outra</Botao>
             </div>
           </Cartao>
@@ -87,7 +105,7 @@ function Shell() {
         <ul className="mx-auto flex max-w-3xl justify-around">
           {itens.filter((i) => i.mostrar).map(({ id, rotulo, Icone, badge }) => (
             <li key={id} className="flex-1">
-              <button onClick={() => { setAba(id); if (id !== "protocolos") setProtocoloSel(null); }} aria-current={aba === id ? "page" : undefined}
+              <button onClick={() => { ir(id); if (id !== "protocolos") setProtocoloSel(null); }} aria-current={aba === id ? "page" : undefined}
                 className={`relative flex w-full flex-col items-center gap-0.5 py-2 text-xs font-medium ${aba === id ? "text-brand" : "text-slate-500"}`}>
                 <Icone className="size-5" aria-hidden />{rotulo}
                 {!!badge && <span className="absolute right-1/4 top-1 rounded-full bg-red-600 px-1.5 text-[10px] text-white">{badge}</span>}

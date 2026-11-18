@@ -4,7 +4,7 @@ import { Search } from "lucide-react";
 import { docM, useMunicipio } from "../lib/municipio";
 import { useSite } from "../lib/useConfig";
 import type { FichaConsulta, Protocolo } from "../lib/types";
-import { Aviso, Botao, Cartao, Selo, dataBR, prazoFinal, rotuloPrazo } from "./ui";
+import { Aviso, BotaoVoltar, Botao, Cartao, Selo, dataBR, prazoFinal, rotuloPrazo } from "./ui";
 import { BotaoLibras, Logo } from "./Marca";
 
 const FORMATO = /^OUV-\d{4}-[A-Z0-9]{8}$/;
@@ -37,6 +37,7 @@ export function PaginaConsulta() {
   const prazo = comoProtocolo && ficha?.status === "aberto" ? rotuloPrazo(comoProtocolo) : null;
   return (
     <div className="mx-auto min-h-dvh max-w-xl space-y-4 p-4">
+      <BotaoVoltar destino={`/${m?.id ?? ""}`} />
       <header className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Logo tamanho="size-12" className="text-brand" />
