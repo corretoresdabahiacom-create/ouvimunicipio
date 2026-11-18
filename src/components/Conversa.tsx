@@ -8,6 +8,7 @@ import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
+import { MAX_ANEXO_R2, MAX_TOTAL_R2, apagarDoR2, baixarDoR2, enviarParaR2, r2Disponivel } from "../lib/midiaR2";
 import { sincronizarFicha } from "../lib/consulta";
 import {
   MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, identificar, juntarPartes, tipoDe,
@@ -34,6 +35,8 @@ export async function apagarConversa(p: Protocolo): Promise<void> {
     getDocs(colM("protocolos", p.id, "mensagens")),
     getDocs(colM("protocolos", p.id, "midias")),
   ]);
+  // arquivos no R2 (se houver) são apagados ANTES de marcar a conversa como apagada; se falhar, tenta de novo na próxima abertura
+  if (m.docs.some((d) => ((d.get("anexos") as AnexoMeta[] | undefined) ?? []).some((a) => a.r2))) await apagarDoR2(p.id);
   const refs = [...m.docs, ...md.docs].map((d) => d.ref);
   for (let i = 0; i < refs.length; i += 400) {
     const lote = writeBatch(db);
@@ -72,7 +75,8 @@ export function useAnexos() {
       // confere o conteúdo real: um arquivo com nome ou tipo trocado (ex.: um .exe chamado foto.jpg) é recusado
       const real = tipo ? await identificar(file) : null;
       if (!tipo || !real || real.tipo !== tipo) { setErro(`"${file.name}": use imagem (JPG/PNG/WebP) ou vídeo (MP4/WebM). O conteúdo do arquivo não confere.`); continue; }
-      if (tipo === "video" && file.size > MAX_VIDEO_BYTES) { setErro(`"${file.name}": o vídeo deve ter até ${formatarBytes(MAX_VIDEO_BYTES)}. Grave um vídeo mais curto.`); continue; }
+      const limiteVideo = (await r2Disponivel()) ? MAX_ANEXO_R2 : MAX_VIDEO_BYTES;
+      if (tipo === "video" && file.size > limiteVideo) { setErro(`"${file.name}": o vídeo deve ter até ${formatarBytes(limiteVideo)}. Grave um vídeo mais curto.`); continue; }
       novos.push({ file, tipo, mime: real.mime });
     }
     const todos = [...arquivos, ...novos];
@@ -105,24 +109,37 @@ export function SeletorAnexos({ a }: { a: ReturnType<typeof useAnexos> }) {
   );
 }
 
-export interface Preparado { meta: AnexoMeta; partes: string[] }
+export interface Preparado { meta: AnexoMeta; partes: string[]; blob: Blob }
 
-/** Comprime imagens e divide tudo em partes. `msg` é o número da mensagem com 2 dígitos ("00"…"49"). */
+/** Comprime imagens e prepara os anexos. Com R2 configurado o arquivo vai inteiro para o R2 (depois que a mensagem for gravada);
+ *  sem R2, é dividido em partes e gravado no Firestore. `msg` é o número da mensagem com 2 dígitos ("00"…"49"). */
 export async function prepararAnexos(arquivos: Escolhido[], msg: string): Promise<Preparado[]> {
   const out: Preparado[] = [];
+  const r2 = arquivos.length > 0 && await r2Disponivel();
+  const limiteTotal = r2 ? MAX_TOTAL_R2 : MAX_TOTAL_BYTES;
   let total = 0;
   for (let i = 0; i < arquivos.length; i++) {
     const { file, tipo } = arquivos[i];
     const blob = tipo === "imagem" ? await comprimirImagem(file) : file;
     total += blob.size;
-    if (total > MAX_TOTAL_BYTES) throw new Error(`Os anexos somam mais de ${formatarBytes(MAX_TOTAL_BYTES)}. Remova algum.`);
-    const partes = await dividirEmPartes(blob);
+    if (total > limiteTotal) throw new Error(`Os anexos somam mais de ${formatarBytes(limiteTotal)}. Remova algum.`);
+    const partes = r2 ? [] : await dividirEmPartes(blob);
     out.push({
-      meta: { k: `${msg}_${i}`, nome: file.name.slice(0, 100), tipo, mime: tipo === "imagem" ? "image/jpeg" : arquivos[i].mime, partes: partes.length, bytes: blob.size },
-      partes,
+      meta: { k: `${msg}_${i}`, nome: file.name.slice(0, 100), tipo, mime: tipo === "imagem" ? "image/jpeg" : arquivos[i].mime, partes: partes.length, bytes: blob.size, ...(r2 ? { r2: true } : {}) },
+      partes, blob,
     });
   }
   return out;
+}
+
+/** Depois que a mensagem foi gravada, envia os arquivos do R2. Devolve o texto do problema, ou "" se deu tudo certo. */
+export async function enviarAnexosR2(numero: string, preparados: Preparado[]): Promise<string> {
+  const falhas: string[] = [];
+  for (const p of preparados) {
+    if (!p.meta.r2) continue;
+    try { await enviarParaR2(numero, p.meta.k, p.blob); } catch { falhas.push(p.meta.nome); }
+  }
+  return falhas.length ? `Sua mensagem foi enviada, mas estes anexos não subiram: ${falhas.join(", ")}. Envie-os de novo em uma nova mensagem.` : "";
 }
 
 export function gravarMidias(lote: WriteBatch, numero: string, preparados: Preparado[]) {
@@ -145,6 +162,11 @@ function Midias({ numero, anexos }: { numero: string; anexos: AnexoMeta[] }) {
       try {
         const out: { k: string; nome: string; tipo: string; url: string }[] = [];
         for (const m of anexos) {
+          if (m.r2) {
+            const b = await baixarDoR2(numero, m.k);
+            if (b) { const url = URL.createObjectURL(b); urls.push(url); out.push({ k: m.k, nome: m.nome, tipo: m.tipo, url }); }
+            continue;
+          }
           const docs = await Promise.all(Array.from({ length: m.partes }, (_, i) => getDoc(docM("protocolos", numero, "midias", `${m.k}_${i}`))));
           if (docs.some((d) => !d.exists())) continue;
           const url = URL.createObjectURL(juntarPartes(docs.map((d) => d.get("data") as string), m.mime));
@@ -273,6 +295,8 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
       }
       await lote.commit();
       if (eu === "servidor" || aguardando) void sincronizarFicha(p.id);
+      const problema = await enviarAnexosR2(p.id, preparados);
+      if (problema) setErro(problema);
       setPedir(false); setTexto(""); anexos.limpar();
     } catch (err) { setErro(mensagemDeErro(err)); }
     finally { setOcupado(false); }

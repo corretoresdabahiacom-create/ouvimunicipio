@@ -115,3 +115,17 @@ Obs.: a ouvidoria atua como canal; classificação de sigilo e a autoridade que 
   `node apagar-municipio.mjs alagoinhas` (mostra quantos documentos) e
   `node apagar-municipio.mjs alagoinhas --confirmar alagoinhas` (faz backup `.ndjson` e apaga). Acrescente `--logins` para apagar também os **logins** (Authentication) das pessoas desse município;
   só apaga quem não tem cadastro em outro município e nunca um superadmin. Sem `--confirmar`, só mostra quem seria apagado.
+
+## Fotos e vídeos no Cloudflare R2 (opcional)
+
+Sem isto, o app continua guardando mídia no Firestore (fotos pequenas, em pedaços). Com o R2, cabem vídeos curtos: **20 MB por arquivo e 40 MB por mensagem**.
+
+1. No painel do Cloudflare: **R2 → Create bucket**, nome `ouvimunicipio-midia`. O R2 exige cartão cadastrado; o uso pequeno cabe na faixa gratuita (10 GB).
+2. No `wrangler.jsonc`, acrescente (à mão, depois de criar o bucket):
+   ```jsonc
+   "r2_buckets": [{ "binding": "MIDIA", "bucket_name": "ouvimunicipio-midia" }]
+   ```
+   Alternativa: Pages → projeto → Settings → Bindings → R2 bucket, variável `MIDIA`.
+3. Publique. O app detecta o R2 sozinho (`/api/midia?status=1`); se o bucket sair do ar, volta ao Firestore.
+
+Como funciona: a mensagem é gravada primeiro e o arquivo sobe depois; o servidor confere o tipo real do arquivo (não confia no nome) e só aceita quem participa do protocolo. Os arquivos são apagados 30 dias após a conclusão da conversa (junto com a conversa). Ao excluir um município, use o botão **Apagar arquivos (R2)** na lista de excluídos do painel do superadmin. Recomenda-se também uma regra de limite de requisições do Cloudflare para `/api/*`.

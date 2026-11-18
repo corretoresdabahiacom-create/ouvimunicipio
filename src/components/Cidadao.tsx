@@ -7,9 +7,9 @@ import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
 import { sincronizarFicha } from "../lib/consulta";
-import { LAI, TIPOS, type Coordenada, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
+import { LAI, TIPOS, prazosDoTipo, type Coordenada, type Notificacao, type Protocolo, type Secretaria, type TipoManifestacao } from "../lib/types";
 import { Aviso, Botao, Campo, Cartao, Carregando, Selo, dataBR, rotuloPrazo } from "./ui";
-import { ProtocoloDetalhe, SeletorAnexos, gravarMidias, prepararAnexos, useAnexos, useLimpezaConversas } from "./Conversa";
+import { ProtocoloDetalhe, SeletorAnexos, enviarAnexosR2, gravarMidias, prepararAnexos, useAnexos, useLimpezaConversas } from "./Conversa";
 
 const SeletorLocal = lazy(() => import("./Mapa").then((m) => ({ default: m.SeletorLocal })));
 const arred = (n: number, casas: number) => Math.round(n * 10 ** casas) / 10 ** casas;
@@ -82,11 +82,13 @@ export function NovaMensagem({ aoConcluir }: { aoConcluir: (numero: string) => v
       gravarMidias(lote, numero, preparados);
       lote.set(doc(colM("notificacoes")), {
         uid: perfil.uid, protocoloId: numero, tipo: "recebido",
-        mensagem: `Protocolo ${numero} registrado para ${sec.nome}. Prazo de resposta: 30 dias.`,
+        mensagem: `Protocolo ${numero} registrado para ${sec.nome}. Prazo de resposta: ${prazosDoTipo(tipo).prazo} dias.`,
         criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
       });
       await lote.commit();
       void sincronizarFicha(numero);
+      const problema = await enviarAnexosR2(numero, preparados);
+      if (problema) window.alert(problema);
       aoConcluir(numero);
     } catch (err) {
       setErro(mensagemDeErro(err));

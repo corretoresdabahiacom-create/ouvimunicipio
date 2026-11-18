@@ -34,7 +34,7 @@ export interface MembroEquipe {
   ativo: boolean;
 }
 
-export interface AnexoMeta { k: string; nome: string; tipo: "imagem" | "video"; mime: string; partes: number; bytes: number }
+export interface AnexoMeta { k: string; nome: string; tipo: "imagem" | "video"; mime: string; partes: number; bytes: number; r2?: boolean /* arquivo no Cloudflare R2 (sem partes no Firestore) */ }
 
 export const TIPOS = {
   reclamacao: "Reclamação", denuncia: "Denúncia", solicitacao: "Solicitação",

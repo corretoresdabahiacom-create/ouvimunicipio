@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { apagarMunicipioDoR2 } from "../lib/midiaR2";
 import { collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/useAuth";
@@ -195,7 +196,21 @@ export function PainelSuperAdmin() {
           ))}
         </ul>
         {lista.some((m) => m.excluido) && (
-          <p className="mt-2 text-xs text-slate-600">Excluídos (endereços bloqueados): {lista.filter((m) => m.excluido).map((m) => `/${m.id}`).join(", ")}</p>
+          <div className="mt-2 text-xs text-slate-600">
+            <p>Excluídos (endereços bloqueados):</p>
+            <ul className="mt-1 space-y-1">
+              {lista.filter((m) => m.excluido).map((m) => (
+                <li key={m.id} className="flex flex-wrap items-center gap-2">
+                  <span>/{m.id}</span>
+                  <Botao variante="link" onClick={async () => {
+                    if (!window.confirm(`Apagar definitivamente os arquivos (fotos/vídeos) de /${m.id} no R2? Não dá para desfazer.`)) return;
+                    try { const n = await apagarMunicipioDoR2(m.id); setOk(`Arquivos de /${m.id} apagados do R2: ${n}.`); }
+                    catch (err) { setErro(err instanceof Error ? err.message : "Não foi possível apagar os arquivos."); }
+                  }}>Apagar arquivos (R2)</Botao>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </Cartao>
     </main>

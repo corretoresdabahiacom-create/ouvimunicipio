@@ -90,3 +90,20 @@ export async function usuariosAtivosDoMunicipio(idToken: string, projectId: stri
   }
   return achados;
 }
+
+// ---------- leitura de um documento do Firestore COM o token da própria pessoa (as regras decidem) ----------
+export interface DocFS { status: number; fields: Record<string, any> }
+export async function lerDocumento(idToken: string, projectId: string, caminho: string, appCheck?: string | null): Promise<DocFS> {
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${caminho}`,
+    { headers: { Authorization: `Bearer ${idToken}`, ...(appCheck ? { "X-Firebase-AppCheck": appCheck } : {}) } });
+  if (!r.ok) return { status: r.status, fields: {} };
+  const j: any = await r.json();
+  return { status: 200, fields: j.fields ?? {} };
+}
+export async function usuarioDoToken(request: Request, projectId: string): Promise<{ email: string; uid: string; idToken: string } | Response> {
+  const auth = request.headers.get("Authorization") || "";
+  if (!auth.startsWith("Bearer ")) return resp(401, { error: "Não autenticado." });
+  const idToken = auth.slice(7);
+  const u = await verificarToken(idToken, projectId).catch(() => null);
+  return u ? { ...u, idToken } : resp(401, { error: "Token inválido." });
+}
