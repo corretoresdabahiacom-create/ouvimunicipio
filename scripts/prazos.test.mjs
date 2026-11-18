@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DIA, montarAlertas, montarEmail, nivelPrazo } from "./prazos.mjs";
+import { DIA, montarAlertas, montarEmail, nivelPrazo, prazoFinal } from "./prazos.mjs";
 
 const agora = Date.UTC(2026, 10, 17, 11, 0);
 const criado = (diasAtras) => agora - diasAtras * DIA;
@@ -38,4 +38,24 @@ test("e-mail não traz conteúdo e escapa HTML", () => {
   assert.match(m.assunto, /\[Ouvidoria Itabuna\] 1 protocolo\(s\)/);
   assert.ok(m.html.includes("Sam &lt;b&gt;"));
   assert.ok(m.texto.includes("OUV-1"));
+});
+
+test("pedido de informações suspende o prazo (até 20 dias) e a espera já somada continua valendo", () => {
+  // criado há 40 dias, sem prorrogação: venceu há 10 dias...
+  assert.equal(nivelPrazo(P("a", 40), agora), "vencido");
+  // ...mas 15 dias de espera já somados empurram o prazo para 45 dias: ainda faltam 5
+  assert.equal(nivelPrazo(P("a", 40, { suspensoDias: 15 }), agora), "cinco");
+  // espera em andamento há 3 dias conta 3 dias a mais
+  assert.equal(prazoFinal(P("a", 10, { aguardandoDesde: criado(3) }), agora), criado(10) + 33 * DIA);
+  // a espera em andamento nunca passa de 20 dias
+  assert.equal(prazoFinal(P("a", 60, { aguardandoDesde: criado(50) }), agora), criado(60) + 50 * DIA);
+});
+
+test("depois de reaberto o prazo conta de novo a partir da reabertura", () => {
+  assert.equal(nivelPrazo(P("a", 100, { reabertoEm: criado(2) }), agora), "ok");
+  assert.equal(nivelPrazo(P("a", 100, { reabertoEm: criado(31) }), agora), "vencido");
+});
+
+test("a espera só vale com o protocolo ainda aberto", () => {
+  assert.equal(prazoFinal(P("a", 10, { status: "respondido", aguardandoDesde: criado(3) }), agora), criado(10) + 30 * DIA);
 });

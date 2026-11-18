@@ -85,6 +85,14 @@ o site, as funções e (se o Secret `FIREBASE_SERVICE_ACCOUNT` existir) o banco;
   Isto é uma sugestão de prazo; confirme com a assessoria jurídica do município (tabela de temporalidade) e ajuste `ANOS_RETENCAO` em `src/lib/types.ts` e no workflow.
 - **Conta do cidadão:** até ele pedir a exclusão. **Avisos:** 2 a 30 dias.
 
+## Etapas do protocolo
+A situação continua sendo aberto → respondido → concluído, com etapas que a refinam:
+- **Em triagem:** o ouvidor geral marca (botão no protocolo) que está analisando para encaminhar. Não muda prazo.
+- **Aguardando informações:** a secretaria marca, ao enviar a mensagem, que precisa de dados do cidadão. O prazo fica **suspenso** até ele responder
+  (no máximo 20 dias por pedido, até 2 pedidos) e não conta como a 1ª resposta. Quando o cidadão responde, os dias de espera são somados ao prazo.
+- **Reaberto:** o cidadão pode reabrir **uma vez**, até 30 dias após a conclusão (enquanto a conversa ainda existe). O prazo conta de novo a partir da reabertura.
+Os alertas por e-mail e a consulta pública usam a mesma regra de prazo do app.
+
 ## Mapa, consulta e respostas-modelo
 - Local da ocorrência: opcional para o cidadão (GPS ou toque no mapa). Mapa nas abas da secretaria e do ouvidor.
 - Consulta sem login: `/{municipio}/consulta` (link na tela de login).

@@ -171,7 +171,7 @@ export function MeusProtocolos({ abrir, selecionado, limparSelecao }: { abrir: (
       {lista.map((p) => (
         <button key={p.id} onClick={() => abrir(p.id)} className="block w-full rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-brand">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-xs text-slate-600">{p.numero}</span><Selo status={p.status} />
+            <span className="font-mono text-xs text-slate-600">{p.numero}</span><Selo status={p.status} p={p} />
           </div>
           <p className="mt-1 font-semibold">{TIPOS[p.tipo] ?? p.assunto ?? "Manifestação"}</p>
           <p className="text-sm text-slate-700">{p.secretariaNome} · {dataBR(p.criadoEm)}</p>

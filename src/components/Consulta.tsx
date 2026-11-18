@@ -60,7 +60,7 @@ export function PaginaConsulta() {
         {msg && <Aviso>{msg}</Aviso>}
         {ficha && (
           <Cartao className="space-y-2">
-            <div className="flex items-center justify-between gap-2"><span className="font-mono text-sm">{numero.trim().toUpperCase()}</span><Selo status={ficha.status} /></div>
+            <div className="flex items-center justify-between gap-2"><span className="font-mono text-sm">{numero.trim().toUpperCase()}</span><Selo status={ficha.status} p={ficha as unknown as Protocolo} /></div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
               <dt className="text-slate-600">Secretaria</dt><dd>{ficha.secretariaNome}</dd>
               <dt className="text-slate-600">Enviado em</dt><dd>{dataBR(ficha.criadoEm)}</dd>

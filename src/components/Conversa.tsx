@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type WriteBatch,
+  deleteField, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type WriteBatch,
 } from "firebase/firestore";
 import { ArrowLeft, MapPin, Paperclip, Send, Star, X } from "lucide-react";
 import { db } from "../lib/firebase";
@@ -12,8 +12,8 @@ import { sincronizarFicha } from "../lib/consulta";
 import {
   MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, identificar, juntarPartes, tipoDe,
 } from "../lib/media";
-import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
-import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
+import { APAGAR_APOS_DIAS, MAX_MENSAGENS, MAX_SUSPENSAO_DIAS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
+import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, diasSuspensos, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
 
 const DIA = 86_400_000;
 
@@ -224,8 +224,11 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [pedir, setPedir] = useState(false); // servidor: esta mensagem pede informações ao cidadão (suspende o prazo)
   const anexos = useAnexos();
   const modelos = useModelos(perfil?.secretariaId, eu === "servidor");
+  const aguardando = p.status === "aberto" && !!p.aguardandoDesde;
+  const podePedir = eu === "servidor" && p.status === "aberto" && !aguardando && (p.pedidosInfo ?? 0) < 2;
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
@@ -241,22 +244,36 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
         de: eu, autorUid: perfil.uid, texto: texto.trim(), anexos: preparados.map((x) => x.meta), criadoEm: serverTimestamp(),
       });
       gravarMidias(lote, p.id, preparados);
-      if (eu === "servidor") {
+      if (eu === "servidor" && pedir && podePedir) {
+        // pede informações: o prazo fica suspenso até o cidadão responder (no máximo MAX_SUSPENSAO_DIAS dias); não conta como 1ª resposta
+        lote.update(docM("protocolos", p.id), { aguardandoDesde: serverTimestamp(), pedidosInfo: (p.pedidosInfo ?? 0) + 1, ultimaMsgPor: "servidor" });
+        lote.set(doc(colM("notificacoes")), {
+          uid: p.autorUid, protocoloId: p.id, tipo: "resposta",
+          mensagem: `A secretaria precisa de mais informações no protocolo ${p.numero}. Responda no protocolo: o prazo fica suspenso enquanto você não responde (no máximo ${MAX_SUSPENSAO_DIAS} dias). Este aviso será apagado em 24 horas.`,
+          criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 24 * 3600_000),
+        });
+      } else if (eu === "servidor") {
         lote.update(docM("protocolos", p.id), {
           status: "respondido", ultimaMsgPor: "servidor", ...(p.status === "aberto" ? { respondidoEm: serverTimestamp() } : {}),
+          ...(p.aguardandoDesde ? { aguardandoDesde: deleteField() } : {}),
         });
         lote.set(doc(colM("notificacoes")), {
           uid: p.autorUid, protocoloId: p.id, tipo: "resposta",
           mensagem: `Há uma nova resposta da secretaria no protocolo ${p.numero}. Atenção: este aviso será apagado em 24 horas. A conversa continua disponível no protocolo.`,
           criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 24 * 3600_000),
         });
+      } else if (aguardando) {
+        // o cidadão respondeu ao pedido: o prazo volta a correr e os dias de espera (no máximo 20) são somados a ele
+        await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
+        const espera = diasSuspensos(p) - (p.suspensoDias ?? 0);
+        lote.update(docM("protocolos", p.id), { ultimaMsgPor: "cidadao", aguardandoDesde: deleteField(), suspensoDias: (p.suspensoDias ?? 0) + espera });
       } else {
         await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
         lote.update(docM("protocolos", p.id), { ultimaMsgPor: "cidadao" });
       }
       await lote.commit();
-      if (eu === "servidor") void sincronizarFicha(p.id);
-      setTexto(""); anexos.limpar();
+      if (eu === "servidor" || aguardando) void sincronizarFicha(p.id);
+      setPedir(false); setTexto(""); anexos.limpar();
     } catch (err) { setErro(mensagemDeErro(err)); }
     finally { setOcupado(false); }
   }
@@ -272,11 +289,17 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
               {modelos.map((m) => <option key={m.id} value={m.id}>{m.titulo}</option>)}
             </select>
           )}
-          <span className="mb-1 block text-sm font-medium">{eu === "servidor" ? "Sua resposta ao cidadão" : p.status === "aberto" ? "Complementar minha mensagem" : "Responder à secretaria"}</span>
+          <span className="mb-1 block text-sm font-medium">{eu === "servidor" ? "Sua resposta ao cidadão" : aguardando ? "Responder ao pedido de informações" : p.status === "aberto" ? "Complementar minha mensagem" : "Responder à secretaria"}</span>
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} maxLength={5000} required
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
         </label>
         <SeletorAnexos a={anexos} />
+        {podePedir && (
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={pedir} onChange={(e) => setPedir(e.target.checked)} className="mt-1 size-4" />
+            <span>Esta mensagem <b>pede informações</b> ao cidadão. O prazo fica suspenso até ele responder (no máximo {MAX_SUSPENSAO_DIAS} dias) e não conta como a 1ª resposta. Só é possível 2 vezes.</span>
+          </label>
+        )}
         {eu === "servidor" && <Aviso tipo="info">O cidadão será avisado. O aviso some em 24 horas, mas a conversa fica no protocolo. Mensagens enviadas não podem ser alteradas.</Aviso>}
         {erro && <Aviso>{erro}</Aviso>}
         <Botao type="submit" carregando={ocupado}><Send className="size-4" aria-hidden /> Enviar</Botao>
@@ -299,7 +322,46 @@ function Estrelas({ valor, onChange, desativado }: { valor: number; onChange?: (
   );
 }
 
-function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
+// Reabrir um atendimento concluído: só o autor, uma vez, até 30 dias após a conclusão (enquanto a conversa existe).
+function Reabertura({ p, proximo }: { p: Protocolo; proximo: number }) {
+  const { perfil } = useAuth();
+  const [aberto, setAberto] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+
+  async function reabrir(e: FormEvent) {
+    e.preventDefault();
+    if (!perfil) return;
+    if (texto.trim().length < 5) return setErro("Conte por que está reabrindo (mínimo de 5 caracteres).");
+    if (proximo >= MAX_MENSAGENS) return setErro("Esta conversa atingiu o limite de mensagens.");
+    setErro(""); setOcupado(true);
+    try {
+      const idx = String(proximo).padStart(2, "0");
+      const lote = writeBatch(db);
+      lote.set(docM("protocolos", p.id, "mensagens", `m${idx}`), { de: "cidadao", autorUid: perfil.uid, texto: texto.trim(), anexos: [], criadoEm: serverTimestamp() });
+      await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
+      lote.update(docM("protocolos", p.id), { status: "aberto", reabertoEm: serverTimestamp(), ultimaMsgPor: "cidadao" });
+      await lote.commit();
+      void sincronizarFicha(p.id);
+      setAberto(false); setTexto("");
+    } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
+  }
+
+  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>O problema não foi resolvido? Reabrir</Botao>;
+  return (
+    <form onSubmit={reabrir} className="space-y-2 rounded-lg border border-violet-300 bg-violet-50 p-3">
+      <p className="text-sm text-violet-950">Você pode reabrir <b>uma vez</b>, até 30 dias depois da conclusão. O prazo da secretaria passa a contar de novo, a partir de agora.</p>
+      <textarea aria-label="Motivo da reabertura" value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} maxLength={5000} required
+        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
+      {erro && <Aviso>{erro}</Aviso>}
+      <div className="flex gap-2"><Botao type="submit" carregando={ocupado}>Reabrir atendimento</Botao>
+        <Botao type="button" variante="link" onClick={() => { setAberto(false); setErro(""); }}>Cancelar</Botao></div>
+    </form>
+  );
+}
+
+function Encerramento({ p, eu, proximo }: { p: Protocolo; eu: "cidadao" | "servidor"; proximo: number }) {
   const [nota, setNota] = useState(0);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -337,6 +399,8 @@ function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
         <>
           <p className="font-medium">Atendimento concluído em {dataBR(p.concluidoEm)}.</p>
           {apagar && <p className="text-sm text-slate-700">A conversa e os anexos serão apagados em {apagar.toLocaleDateString("pt-BR")}.</p>}
+          {p.reabertoEm && <p className="text-sm text-slate-700">Este atendimento já foi reaberto em {dataBR(p.reabertoEm)} (só é possível uma vez).</p>}
+          {eu === "cidadao" && !p.reabertoEm && !p.apagada && !conversaVencida(p) && <Reabertura p={p} proximo={proximo} />}
           {p.avaliacao ? <div><p className="text-sm">Nota do cidadão:</p><Estrelas valor={p.avaliacao} desativado /></div>
             : eu === "cidadao" && (
               <div className="space-y-2"><p className="text-sm">Como foi o atendimento?</p><Estrelas valor={nota} onChange={setNota} />
@@ -440,7 +504,7 @@ export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar
             <p className="font-mono text-sm text-slate-600">{p.numero}</p>
             <h2 className="text-lg font-semibold">{titulo}</h2>
           </div>
-          <Selo status={p.status} />
+          <Selo status={p.status} p={p} />
         </div>
         <dl className="grid gap-1 text-sm text-slate-700 sm:grid-cols-2">
           <div><dt className="inline font-medium">Tipo: </dt><dd className="inline">{TIPOS[p.tipo] ?? "—"}</dd></div>
@@ -456,6 +520,16 @@ export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar
             <b>Prazo prorrogado</b> em {dataBR(p.prorrogadoEm)}{p.prorrogacaoPor ? ` por ${p.prorrogacaoPor}` : ""}, por mais {PRAZO_PRORROGACAO_DIAS} dias (a prorrogação só pode ser feita uma vez).
             {p.prorrogacaoMotivo && <> Motivo: {p.prorrogacaoMotivo}</>}
           </Aviso>
+        )}
+        {p.status === "aberto" && p.aguardandoDesde && (
+          <Aviso tipo="info">
+            {eu === "cidadao"
+              ? <><b>A secretaria pediu mais informações</b> em {dataBR(p.aguardandoDesde)}. Responda abaixo: enquanto você não responde, o prazo da secretaria fica suspenso (no máximo {MAX_SUSPENSAO_DIAS} dias).</>
+              : <><b>Aguardando informações do cidadão</b> desde {dataBR(p.aguardandoDesde)}. O prazo está suspenso (no máximo {MAX_SUSPENSAO_DIAS} dias).</>}
+          </Aviso>
+        )}
+        {p.reabertoEm && p.status !== "concluido" && (
+          <Aviso tipo="info"><b>Atendimento reaberto</b> pelo cidadão em {dataBR(p.reabertoEm)}. O prazo conta a partir dessa data.</Aviso>
         )}
         {historico.length > 0 && (
           <Aviso tipo="info">
@@ -478,7 +552,7 @@ export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar
           ? <Aviso tipo="info">Esta conversa atingiu o limite de {MAX_MENSAGENS} mensagens.</Aviso>
           : <Compositor p={p} proximo={proximo} eu={eu} />
       )}
-      {eu !== "ouvidor" && <Encerramento p={p} eu={eu} />}
+      {eu !== "ouvidor" && <Encerramento p={p} eu={eu} proximo={proximo} />}
       {/* apagar manualmente não existe: a limpeza é automática */}
     </div>
   );

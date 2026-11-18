@@ -69,6 +69,12 @@ export interface Protocolo {
   cobradoEm?: Timestamp | null;
   ultimaMsgPor?: "cidadao" | "servidor";
   apagada?: boolean;
+  // etapas extras (a situação continua "aberto/respondido/concluido"; estes campos refinam o que se mostra)
+  triagemEm?: Timestamp | null;        // ouvidor geral está analisando antes de encaminhar
+  aguardandoDesde?: Timestamp | null;  // secretaria pediu informações ao cidadão: o prazo fica suspenso (no máximo 20 dias)
+  pedidosInfo?: number;                // quantos pedidos de informação já foram feitos (máx. 2)
+  suspensoDias?: number;               // dias de espera já somados ao prazo
+  reabertoEm?: Timestamp | null;       // cidadão reabriu o atendimento concluído (uma vez, até 30 dias depois)
   // protocolos antigos (antes da conversa) guardavam o texto aqui
   assunto?: string;
   mensagem?: string;
@@ -138,6 +144,7 @@ export interface Estatisticas {
 }
 
 export const PRAZO_DIAS = 30;
+export const MAX_SUSPENSAO_DIAS = 20; // espera pelo cidadão que soma ao prazo, por pedido
 export const PRAZO_PRORROGACAO_DIAS = 30; // prorrogação única, com justificativa (Lei 13.460/2017, art. 16)
 export const AVISO_HORAS = 24;
 export const APAGAR_APOS_DIAS = 30; // conversa é apagada 30 dias depois de concluída
