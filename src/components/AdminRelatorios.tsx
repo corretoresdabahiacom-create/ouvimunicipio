@@ -1,9 +1,9 @@
 import { useState } from "react";
 import {
-  collection, getCountFromServer, getDocs, limit, orderBy, query, startAfter, Timestamp, where, type Query, type QueryDocumentSnapshot, type QuerySnapshot,
+  getCountFromServer, getDocs, limit, orderBy, query, startAfter, Timestamp, where, type Query, type QueryDocumentSnapshot, type QuerySnapshot,
 } from "firebase/firestore";
 import { Download, RefreshCw } from "lucide-react";
-import { db } from "../lib/firebase";
+
 import { colM } from "../lib/municipio";
 import { mensagemDeErro } from "../lib/erros";
 import { TIPOS, type Secretaria } from "../lib/types";

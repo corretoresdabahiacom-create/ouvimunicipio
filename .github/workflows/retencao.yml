@@ -1,0 +1,49 @@
+# Retenção de dados: todo dia 1º, apaga protocolos concluídos há mais de 5 anos. O backup (.ndjson, com dados do protocolo)
+# fica 30 dias como "artefato" desta execução (acesso restrito a quem tem acesso ao repositório) e depois some.
+# Fica DESLIGADO até você decidir: Variables → RETENCAO_ATIVA = true.
+# Teste sem apagar: aba Actions → "Retenção de dados" → Run workflow (modo simulação já vem marcado).
+# Precisa do Secret FIREBASE_SERVICE_ACCOUNT (o mesmo dos alertas de prazo).
+name: Retenção de dados
+
+on:
+  schedule:
+    - cron: "40 5 1 * *"
+  workflow_dispatch:
+    inputs:
+      simulacao:
+        description: "Simulação (só mostra o que seria apagado)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  retencao:
+    if: github.event_name == 'workflow_dispatch' || vars.RETENCAO_ATIVA == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Aplicar retenção
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node retencao.mjs ${{ (github.event_name == 'workflow_dispatch' && inputs.simulacao) && '' || '--confirmar' }}
+      - name: Guardar o backup (só quando apagou)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.simulacao) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-retencao
+          path: scripts/backup-retencao-*.ndjson
+          retention-days: 30
+          if-no-files-found: ignore

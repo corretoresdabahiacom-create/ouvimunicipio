@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type WriteBatch,
+  deleteField, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type WriteBatch,
 } from "firebase/firestore";
 import { ArrowLeft, MapPin, Paperclip, Send, Star, X } from "lucide-react";
 import { db } from "../lib/firebase";
@@ -8,12 +8,13 @@ import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { registrarEnvio } from "../lib/limite";
+import { MAX_ANEXO_R2, MAX_TOTAL_R2, apagarDoR2, baixarDoR2, enviarParaR2, r2Disponivel } from "../lib/midiaR2";
 import { sincronizarFicha } from "../lib/consulta";
 import {
-  MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, juntarPartes, tipoDe,
+  MAX_ANEXOS, MAX_TOTAL_BYTES, MAX_VIDEO_BYTES, comprimirImagem, dividirEmPartes, formatarBytes, identificar, juntarPartes, tipoDe,
 } from "../lib/media";
-import { APAGAR_APOS_DIAS, MAX_MENSAGENS, PRAZO_PRORROGACAO_DIAS, TIPOS, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
-import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
+import { APAGAR_APOS_DIAS, LAI, MAX_MENSAGENS, MAX_SUSPENSAO_DIAS, TIPOS, prazosDoTipo, type AnexoMeta, type Encaminhamento, type Mensagem, type Modelo, type Protocolo } from "../lib/types";
+import { Aviso, Botao, Cartao, Carregando, Selo, dataBR, diasSuspensos, nivelPrazo, prazoFinal, rotuloPrazo } from "./ui";
 
 const DIA = 86_400_000;
 
@@ -34,6 +35,8 @@ export async function apagarConversa(p: Protocolo): Promise<void> {
     getDocs(colM("protocolos", p.id, "mensagens")),
     getDocs(colM("protocolos", p.id, "midias")),
   ]);
+  // arquivos no R2 (se houver) são apagados ANTES de marcar a conversa como apagada; se falhar, tenta de novo na próxima abertura
+  if (m.docs.some((d) => ((d.get("anexos") as AnexoMeta[] | undefined) ?? []).some((a) => a.r2))) await apagarDoR2(p.id);
   const refs = [...m.docs, ...md.docs].map((d) => d.ref);
   for (let i = 0; i < refs.length; i += 400) {
     const lote = writeBatch(db);
@@ -56,22 +59,25 @@ export function useLimpezaConversas(lista: Protocolo[] | null) {
 }
 
 // ---------- anexos ----------
-interface Escolhido { file: File; tipo: "imagem" | "video" }
+interface Escolhido { file: File; tipo: "imagem" | "video"; mime: string }
 
 export function useAnexos() {
   const [arquivos, setArquivos] = useState<Escolhido[]>([]);
   const [erro, setErro] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function adicionar(lista: FileList | null) {
+  async function adicionar(lista: FileList | null) {
     if (!lista) return;
     setErro("");
     const novos: Escolhido[] = [];
     for (const file of Array.from(lista)) {
       const tipo = tipoDe(file);
-      if (!tipo) { setErro(`"${file.name}": use imagem (JPG/PNG/WebP) ou vídeo (MP4/WebM).`); continue; }
-      if (tipo === "video" && file.size > MAX_VIDEO_BYTES) { setErro(`"${file.name}": o vídeo deve ter até ${formatarBytes(MAX_VIDEO_BYTES)}. Grave um vídeo mais curto.`); continue; }
-      novos.push({ file, tipo });
+      // confere o conteúdo real: um arquivo com nome ou tipo trocado (ex.: um .exe chamado foto.jpg) é recusado
+      const real = tipo ? await identificar(file) : null;
+      if (!tipo || !real || real.tipo !== tipo) { setErro(`"${file.name}": use imagem (JPG/PNG/WebP) ou vídeo (MP4/WebM). O conteúdo do arquivo não confere.`); continue; }
+      const limiteVideo = (await r2Disponivel()) ? MAX_ANEXO_R2 : MAX_VIDEO_BYTES;
+      if (tipo === "video" && file.size > limiteVideo) { setErro(`"${file.name}": o vídeo deve ter até ${formatarBytes(limiteVideo)}. Grave um vídeo mais curto.`); continue; }
+      novos.push({ file, tipo, mime: real.mime });
     }
     const todos = [...arquivos, ...novos];
     if (todos.length > MAX_ANEXOS) { setErro(`No máximo ${MAX_ANEXOS} anexos.`); return; }
@@ -85,7 +91,7 @@ export function SeletorAnexos({ a }: { a: ReturnType<typeof useAnexos> }) {
   return (
     <div>
       <input ref={a.inputRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" multiple hidden
-        onChange={(e) => a.adicionar(e.target.files)} />
+        onChange={(e) => void a.adicionar(e.target.files)} />
       <Botao type="button" variante="secundario" onClick={() => a.inputRef.current?.click()} disabled={a.arquivos.length >= MAX_ANEXOS}>
         <Paperclip className="size-4" aria-hidden /> Anexar foto ou vídeo
       </Botao>
@@ -103,24 +109,37 @@ export function SeletorAnexos({ a }: { a: ReturnType<typeof useAnexos> }) {
   );
 }
 
-export interface Preparado { meta: AnexoMeta; partes: string[] }
+export interface Preparado { meta: AnexoMeta; partes: string[]; blob: Blob }
 
-/** Comprime imagens e divide tudo em partes. `msg` é o número da mensagem com 2 dígitos ("00"…"49"). */
+/** Comprime imagens e prepara os anexos. Com R2 configurado o arquivo vai inteiro para o R2 (depois que a mensagem for gravada);
+ *  sem R2, é dividido em partes e gravado no Firestore. `msg` é o número da mensagem com 2 dígitos ("00"…"49"). */
 export async function prepararAnexos(arquivos: Escolhido[], msg: string): Promise<Preparado[]> {
   const out: Preparado[] = [];
+  const r2 = arquivos.length > 0 && await r2Disponivel();
+  const limiteTotal = r2 ? MAX_TOTAL_R2 : MAX_TOTAL_BYTES;
   let total = 0;
   for (let i = 0; i < arquivos.length; i++) {
     const { file, tipo } = arquivos[i];
     const blob = tipo === "imagem" ? await comprimirImagem(file) : file;
     total += blob.size;
-    if (total > MAX_TOTAL_BYTES) throw new Error(`Os anexos somam mais de ${formatarBytes(MAX_TOTAL_BYTES)}. Remova algum.`);
-    const partes = await dividirEmPartes(blob);
+    if (total > limiteTotal) throw new Error(`Os anexos somam mais de ${formatarBytes(limiteTotal)}. Remova algum.`);
+    const partes = r2 ? [] : await dividirEmPartes(blob);
     out.push({
-      meta: { k: `${msg}_${i}`, nome: file.name.slice(0, 100), tipo, mime: tipo === "imagem" ? "image/jpeg" : file.type, partes: partes.length, bytes: blob.size },
-      partes,
+      meta: { k: `${msg}_${i}`, nome: file.name.slice(0, 100), tipo, mime: tipo === "imagem" ? "image/jpeg" : arquivos[i].mime, partes: partes.length, bytes: blob.size, ...(r2 ? { r2: true } : {}) },
+      partes, blob,
     });
   }
   return out;
+}
+
+/** Depois que a mensagem foi gravada, envia os arquivos do R2. Devolve o texto do problema, ou "" se deu tudo certo. */
+export async function enviarAnexosR2(numero: string, preparados: Preparado[]): Promise<string> {
+  const falhas: string[] = [];
+  for (const p of preparados) {
+    if (!p.meta.r2) continue;
+    try { await enviarParaR2(numero, p.meta.k, p.blob); } catch { falhas.push(p.meta.nome); }
+  }
+  return falhas.length ? `Sua mensagem foi enviada, mas estes anexos não subiram: ${falhas.join(", ")}. Envie-os de novo em uma nova mensagem.` : "";
 }
 
 export function gravarMidias(lote: WriteBatch, numero: string, preparados: Preparado[]) {
@@ -143,6 +162,11 @@ function Midias({ numero, anexos }: { numero: string; anexos: AnexoMeta[] }) {
       try {
         const out: { k: string; nome: string; tipo: string; url: string }[] = [];
         for (const m of anexos) {
+          if (m.r2) {
+            const b = await baixarDoR2(numero, m.k);
+            if (b) { const url = URL.createObjectURL(b); urls.push(url); out.push({ k: m.k, nome: m.nome, tipo: m.tipo, url }); }
+            continue;
+          }
           const docs = await Promise.all(Array.from({ length: m.partes }, (_, i) => getDoc(docM("protocolos", numero, "midias", `${m.k}_${i}`))));
           if (docs.some((d) => !d.exists())) continue;
           const url = URL.createObjectURL(juntarPartes(docs.map((d) => d.get("data") as string), m.mime));
@@ -222,8 +246,11 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [pedir, setPedir] = useState(false); // servidor: esta mensagem pede informações ao cidadão (suspende o prazo)
   const anexos = useAnexos();
   const modelos = useModelos(perfil?.secretariaId, eu === "servidor");
+  const aguardando = p.status === "aberto" && !!p.aguardandoDesde;
+  const podePedir = eu === "servidor" && p.status === "aberto" && !aguardando && (p.pedidosInfo ?? 0) < 2;
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
@@ -239,22 +266,38 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
         de: eu, autorUid: perfil.uid, texto: texto.trim(), anexos: preparados.map((x) => x.meta), criadoEm: serverTimestamp(),
       });
       gravarMidias(lote, p.id, preparados);
-      if (eu === "servidor") {
+      if (eu === "servidor" && pedir && podePedir) {
+        // pede informações: o prazo fica suspenso até o cidadão responder (no máximo MAX_SUSPENSAO_DIAS dias); não conta como 1ª resposta
+        lote.update(docM("protocolos", p.id), { aguardandoDesde: serverTimestamp(), pedidosInfo: (p.pedidosInfo ?? 0) + 1, ultimaMsgPor: "servidor" });
+        lote.set(doc(colM("notificacoes")), {
+          uid: p.autorUid, protocoloId: p.id, tipo: "resposta",
+          mensagem: `A secretaria precisa de mais informações no protocolo ${p.numero}. Responda no protocolo: o prazo fica suspenso enquanto você não responde (no máximo ${MAX_SUSPENSAO_DIAS} dias). Este aviso será apagado em 24 horas.`,
+          criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 24 * 3600_000),
+        });
+      } else if (eu === "servidor") {
         lote.update(docM("protocolos", p.id), {
           status: "respondido", ultimaMsgPor: "servidor", ...(p.status === "aberto" ? { respondidoEm: serverTimestamp() } : {}),
+          ...(p.aguardandoDesde ? { aguardandoDesde: deleteField() } : {}),
         });
         lote.set(doc(colM("notificacoes")), {
           uid: p.autorUid, protocoloId: p.id, tipo: "resposta",
           mensagem: `Há uma nova resposta da secretaria no protocolo ${p.numero}. Atenção: este aviso será apagado em 24 horas. A conversa continua disponível no protocolo.`,
           criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 24 * 3600_000),
         });
+      } else if (aguardando) {
+        // o cidadão respondeu ao pedido: o prazo volta a correr e os dias de espera (no máximo 20) são somados a ele
+        await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
+        const espera = diasSuspensos(p) - (p.suspensoDias ?? 0);
+        lote.update(docM("protocolos", p.id), { ultimaMsgPor: "cidadao", aguardandoDesde: deleteField(), suspensoDias: (p.suspensoDias ?? 0) + espera });
       } else {
         await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
         lote.update(docM("protocolos", p.id), { ultimaMsgPor: "cidadao" });
       }
       await lote.commit();
-      if (eu === "servidor") void sincronizarFicha(p.id);
-      setTexto(""); anexos.limpar();
+      if (eu === "servidor" || aguardando) void sincronizarFicha(p.id);
+      const problema = await enviarAnexosR2(p.id, preparados);
+      if (problema) setErro(problema);
+      setPedir(false); setTexto(""); anexos.limpar();
     } catch (err) { setErro(mensagemDeErro(err)); }
     finally { setOcupado(false); }
   }
@@ -270,11 +313,17 @@ function Compositor({ p, proximo, eu }: { p: Protocolo; proximo: number; eu: "ci
               {modelos.map((m) => <option key={m.id} value={m.id}>{m.titulo}</option>)}
             </select>
           )}
-          <span className="mb-1 block text-sm font-medium">{eu === "servidor" ? "Sua resposta ao cidadão" : p.status === "aberto" ? "Complementar minha mensagem" : "Responder à secretaria"}</span>
+          <span className="mb-1 block text-sm font-medium">{eu === "servidor" ? "Sua resposta ao cidadão" : aguardando ? "Responder ao pedido de informações" : p.status === "aberto" ? "Complementar minha mensagem" : "Responder à secretaria"}</span>
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} maxLength={5000} required
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
         </label>
         <SeletorAnexos a={anexos} />
+        {podePedir && (
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={pedir} onChange={(e) => setPedir(e.target.checked)} className="mt-1 size-4" />
+            <span>Esta mensagem <b>pede informações</b> ao cidadão. O prazo fica suspenso até ele responder (no máximo {MAX_SUSPENSAO_DIAS} dias) e não conta como a 1ª resposta. Só é possível 2 vezes.</span>
+          </label>
+        )}
         {eu === "servidor" && <Aviso tipo="info">O cidadão será avisado. O aviso some em 24 horas, mas a conversa fica no protocolo. Mensagens enviadas não podem ser alteradas.</Aviso>}
         {erro && <Aviso>{erro}</Aviso>}
         <Botao type="submit" carregando={ocupado}><Send className="size-4" aria-hidden /> Enviar</Botao>
@@ -297,7 +346,57 @@ function Estrelas({ valor, onChange, desativado }: { valor: number; onChange?: (
   );
 }
 
-function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
+// Reabrir um atendimento concluído: só o autor, uma vez, até 30 dias após a conclusão (enquanto a conversa existe).
+// Pode reabrir (ou, no pedido de acesso à informação, apresentar recurso)?
+export function podeReabrir(p: Protocolo, agora = Date.now()): boolean {
+  if (p.reabertoEm || p.apagada) return false;
+  const ate = (t: { toDate?: () => Date } | null | undefined, dias: number) => { const d = t?.toDate?.(); return !!d && agora < d.getTime() + dias * DIA; };
+  if (p.tipo === "lai") return (p.status === "respondido" && ate(p.respondidoEm, LAI.recursoPrazoDias)) || (p.status === "concluido" && ate(p.concluidoEm, LAI.recursoPrazoDias));
+  return p.status === "concluido" && !conversaVencida(p);
+}
+
+function Reabertura({ p, proximo }: { p: Protocolo; proximo: number }) {
+  const { perfil } = useAuth();
+  const [aberto, setAberto] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+
+  async function reabrir(e: FormEvent) {
+    e.preventDefault();
+    if (!perfil) return;
+    if (texto.trim().length < 5) return setErro("Conte por que está reabrindo (mínimo de 5 caracteres).");
+    if (proximo >= MAX_MENSAGENS) return setErro("Esta conversa atingiu o limite de mensagens.");
+    setErro(""); setOcupado(true);
+    try {
+      const idx = String(proximo).padStart(2, "0");
+      const lote = writeBatch(db);
+      lote.set(docM("protocolos", p.id, "mensagens", `m${idx}`), { de: "cidadao", autorUid: perfil.uid, texto: texto.trim(), anexos: [], criadoEm: serverTimestamp() });
+      await registrarEnvio(lote, perfil.uid, `${p.id}/m${idx}`);
+      lote.update(docM("protocolos", p.id), { status: "aberto", reabertoEm: serverTimestamp(), ultimaMsgPor: "cidadao" });
+      await lote.commit();
+      void sincronizarFicha(p.id);
+      setAberto(false); setTexto("");
+    } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
+  }
+
+  const lai = p.tipo === "lai";
+  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>{lai ? "Apresentar recurso" : "O problema não foi resolvido? Reabrir"}</Botao>;
+  return (
+    <form onSubmit={reabrir} className="space-y-2 rounded-lg border border-violet-300 bg-violet-50 p-3">
+      {lai
+        ? <p className="text-sm text-violet-950"><b>Recurso</b> (Lei 12.527/2011, art. 15): vale <b>uma vez</b>, até {LAI.recursoPrazoDias} dias depois da resposta. Explique por que a resposta foi negada ou ficou incompleta. A administração deve decidir em {LAI.decisaoRecursoDias} dias.</p>
+        : <p className="text-sm text-violet-950">Você pode reabrir <b>uma vez</b>, até 30 dias depois da conclusão. O prazo da secretaria passa a contar de novo, a partir de agora.</p>}
+      <textarea aria-label={lai ? "Motivo do recurso" : "Motivo da reabertura"} value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} maxLength={5000} required
+        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
+      {erro && <Aviso>{erro}</Aviso>}
+      <div className="flex gap-2"><Botao type="submit" carregando={ocupado}>{lai ? "Enviar recurso" : "Reabrir atendimento"}</Botao>
+        <Botao type="button" variante="link" onClick={() => { setAberto(false); setErro(""); }}>Cancelar</Botao></div>
+    </form>
+  );
+}
+
+function Encerramento({ p, eu, proximo }: { p: Protocolo; eu: "cidadao" | "servidor"; proximo: number }) {
   const [nota, setNota] = useState(0);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -328,6 +427,7 @@ function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
           </>}
           {erro && <Aviso>{erro}</Aviso>}
           <Botao onClick={concluir} carregando={ocupado}>Concluir atendimento</Botao>
+          {eu === "cidadao" && podeReabrir(p) && <Reabertura p={p} proximo={proximo} />}
           <p className="text-xs text-slate-600">Ao concluir, a conversa e os anexos são apagados {APAGAR_APOS_DIAS} dias depois. Ficam apenas os dados do protocolo (número, secretaria, datas e nota), sem seu nome.</p>
         </>
       )}
@@ -335,6 +435,8 @@ function Encerramento({ p, eu }: { p: Protocolo; eu: "cidadao" | "servidor" }) {
         <>
           <p className="font-medium">Atendimento concluído em {dataBR(p.concluidoEm)}.</p>
           {apagar && <p className="text-sm text-slate-700">A conversa e os anexos serão apagados em {apagar.toLocaleDateString("pt-BR")}.</p>}
+          {p.reabertoEm && <p className="text-sm text-slate-700">Este atendimento já foi reaberto em {dataBR(p.reabertoEm)} (só é possível uma vez).</p>}
+          {eu === "cidadao" && podeReabrir(p) && <Reabertura p={p} proximo={proximo} />}
           {p.avaliacao ? <div><p className="text-sm">Nota do cidadão:</p><Estrelas valor={p.avaliacao} desativado /></div>
             : eu === "cidadao" && (
               <div className="space-y-2"><p className="text-sm">Como foi o atendimento?</p><Estrelas valor={nota} onChange={setNota} />
@@ -366,7 +468,7 @@ function Prorrogacao({ p }: { p: Protocolo }) {
       lote.update(docM("protocolos", p.id), { prorrogadoEm: serverTimestamp(), prorrogacaoMotivo: m, prorrogacaoPor: perfil.nome });
       lote.set(doc(colM("notificacoes")), {
         uid: p.autorUid, protocoloId: p.id, tipo: "prorrogacao",
-        mensagem: `O prazo do protocolo ${p.numero} foi prorrogado por ${PRAZO_PRORROGACAO_DIAS} dias. Motivo informado pela secretaria: ${m}`,
+        mensagem: `O prazo do protocolo ${p.numero} foi prorrogado por ${prazosDoTipo(p.tipo).prorrogacao} dias. Motivo informado pela secretaria: ${m}`,
         criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * 86400_000),
       });
       await lote.commit();
@@ -375,10 +477,10 @@ function Prorrogacao({ p }: { p: Protocolo }) {
     } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
   }
 
-  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>Prorrogar prazo (+{PRAZO_PRORROGACAO_DIAS} dias)</Botao>;
+  if (!aberto) return <Botao variante="secundario" onClick={() => setAberto(true)}>Prorrogar prazo (+{prazosDoTipo(p.tipo).prorrogacao} dias)</Botao>;
   return (
     <form onSubmit={prorrogar} className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
-      <p className="text-sm text-amber-950">A lei permite prorrogar <b>uma única vez</b>, por até {PRAZO_PRORROGACAO_DIAS} dias, com justificativa expressa. O cidadão será avisado e verá o motivo. Seu nome fica registrado.</p>
+      <p className="text-sm text-amber-950">A lei permite prorrogar <b>uma única vez</b>, por até {prazosDoTipo(p.tipo).prorrogacao} dias{p.tipo === "lai" ? " (Lei de Acesso à Informação, art. 11)" : ""}, com justificativa expressa. O cidadão será avisado e verá o motivo. Seu nome fica registrado.</p>
       <label className="block">
         <span className="mb-1 block text-sm font-medium">Motivo da prorrogação</span>
         <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} maxLength={300} required
@@ -438,7 +540,7 @@ export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar
             <p className="font-mono text-sm text-slate-600">{p.numero}</p>
             <h2 className="text-lg font-semibold">{titulo}</h2>
           </div>
-          <Selo status={p.status} />
+          <Selo status={p.status} p={p} />
         </div>
         <dl className="grid gap-1 text-sm text-slate-700 sm:grid-cols-2">
           <div><dt className="inline font-medium">Tipo: </dt><dd className="inline">{TIPOS[p.tipo] ?? "—"}</dd></div>
@@ -451,9 +553,19 @@ export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar
         </dl>
         {p.prorrogadoEm && (
           <Aviso tipo="info">
-            <b>Prazo prorrogado</b> em {dataBR(p.prorrogadoEm)}{p.prorrogacaoPor ? ` por ${p.prorrogacaoPor}` : ""}, por mais {PRAZO_PRORROGACAO_DIAS} dias (a prorrogação só pode ser feita uma vez).
+            <b>Prazo prorrogado</b> em {dataBR(p.prorrogadoEm)}{p.prorrogacaoPor ? ` por ${p.prorrogacaoPor}` : ""}, por mais {prazosDoTipo(p.tipo).prorrogacao} dias (a prorrogação só pode ser feita uma vez).
             {p.prorrogacaoMotivo && <> Motivo: {p.prorrogacaoMotivo}</>}
           </Aviso>
+        )}
+        {p.status === "aberto" && p.aguardandoDesde && (
+          <Aviso tipo="info">
+            {eu === "cidadao"
+              ? <><b>A secretaria pediu mais informações</b> em {dataBR(p.aguardandoDesde)}. Responda abaixo: enquanto você não responde, o prazo da secretaria fica suspenso (no máximo {MAX_SUSPENSAO_DIAS} dias).</>
+              : <><b>Aguardando informações do cidadão</b> desde {dataBR(p.aguardandoDesde)}. O prazo está suspenso (no máximo {MAX_SUSPENSAO_DIAS} dias).</>}
+          </Aviso>
+        )}
+        {p.reabertoEm && p.status !== "concluido" && (
+          <Aviso tipo="info">{p.tipo === "lai" ? <><b>Recurso apresentado</b> em {dataBR(p.reabertoEm)}. A administração deve decidir em {LAI.decisaoRecursoDias} dias.</> : <><b>Atendimento reaberto</b> pelo cidadão em {dataBR(p.reabertoEm)}. O prazo conta a partir dessa data.</>}</Aviso>
         )}
         {historico.length > 0 && (
           <Aviso tipo="info">
@@ -476,7 +588,7 @@ export function ProtocoloDetalhe({ p, voltar, eu, topo }: { p: Protocolo; voltar
           ? <Aviso tipo="info">Esta conversa atingiu o limite de {MAX_MENSAGENS} mensagens.</Aviso>
           : <Compositor p={p} proximo={proximo} eu={eu} />
       )}
-      {eu !== "ouvidor" && <Encerramento p={p} eu={eu} />}
+      {eu !== "ouvidor" && <Encerramento p={p} eu={eu} proximo={proximo} />}
       {/* apagar manualmente não existe: a limpeza é automática */}
     </div>
   );

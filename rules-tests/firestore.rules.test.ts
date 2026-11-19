@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, beforeEach, describe, test } from "vitest";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch, type WriteBatch } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch, type WriteBatch } from "firebase/firestore";
 
 let env: RulesTestEnvironment;
 type Db = ReturnType<ReturnType<RulesTestEnvironment["authenticatedContext"]>["firestore"]>;
@@ -926,6 +926,21 @@ describe("17. Isolamento entre municípios e SUPERADMIN", () => {
       await assertFails(setDoc(doc(dono(), "municipios/a/equipe/novo@x.com"), { nome: "Novo", papel: "ouvidor", ativo: true }));
       await assertFails(setDoc(doc(dono(), "municipios/a/equipe/dono@x.com"), { nome: "Dono", papel: "admin", ativo: true }));
     });
+    test("lista e remove só ADMINISTRADORES do município; desativa um admin; nunca lê secretários, ouvidores etc.", async () => {
+      await assertSucceeds(getDocs(query(collection(dono(), "municipios/a/equipe"), where("papel", "==", "admin"))));
+      await assertSucceeds(getDoc(doc(dono(), "municipios/a/equipe/adm@x.com")));
+      await assertFails(getDocs(collection(dono(), "municipios/a/equipe")));
+      await assertFails(getDoc(doc(dono(), "municipios/a/equipe/sam@x.com")));
+      await assertFails(getDoc(doc(dono(), "municipios/a/equipe/olga@x.com")));
+      await assertSucceeds(updateDoc(doc(dono(), "municipios/a/equipe/adm@x.com"), { ativo: false }));
+      await assertFails(deleteDoc(doc(dono(), "municipios/a/equipe/sam@x.com")));
+      await assertSucceeds(deleteDoc(doc(dono(), "municipios/a/equipe/adm@x.com")));
+      await assertFails(deleteDoc(doc(adm(), "municipios/b/equipe/admb@x.com")));
+    });
+    test("o administrador de um município não vê nem apaga administradores de outro (superadmin à parte)", async () => {
+      await assertFails(getDoc(doc(adm(), "municipios/b/equipe/admb@x.com")));
+      await assertFails(deleteDoc(doc(adm(), "municipios/b/equipe/admb@x.com")));
+    });
     test("NÃO lê protocolos, conversas, mídias, histórico, usuários nem notificações de nenhum município", async () => {
       await assertFails(getDoc(doc(dono(), "municipios/a/protocolos", NUM)));
       await assertFails(getDocs(collection(dono(), "municipios/a/protocolos")));
@@ -1070,7 +1085,234 @@ describe("Padrão: tudo que não foi liberado está negado", () => {
 });
 
 // =====================================================================
+describe("23. Status extras: em triagem, aguardando informações (prazo suspenso) e reaberto", () => {
+  const P = () => "municipios/a/protocolos";
+  const msgServidor = (db: Db, idx: string) => ({ ref: doc(db, P(), NUM, "mensagens", `m${idx}`), dados: { de: "servidor", autorUid: "sam", texto: "Qual o endereço exato?", anexos: [], criadoEm: serverTimestamp() } });
+  const pedirInfo = (db: Db, extra: Record<string, unknown> = {}, pedidosAntes = 0) => {
+    const b = writeBatch(db);
+    const m = msgServidor(db, "01");
+    b.set(m.ref, m.dados);
+    b.update(doc(db, P(), NUM), { aguardandoDesde: serverTimestamp(), pedidosInfo: pedidosAntes + 1, ultimaMsgPor: "servidor", ...extra });
+    return b;
+  };
+  const responderPedido = (db: Db, dias: number, c?: Contador) => {
+    const b = writeBatch(db);
+    contar(b, db, "ana", `${NUM}/m02`, c);
+    b.set(doc(db, P(), NUM, "mensagens", "m02"), { de: "cidadao", autorUid: "ana", texto: "Rua das Flores, 10.", anexos: [], criadoEm: serverTimestamp() });
+    b.update(doc(db, P(), NUM), { ultimaMsgPor: "cidadao", aguardandoDesde: deleteField(), suspensoDias: dias });
+    return b;
+  };
+  const aguardando = { aguardandoDesde: Timestamp.now(), pedidosInfo: 1, ultimaMsgPor: "servidor" };
+
+  describe("em triagem (ouvidor geral)", () => {
+    test("o ouvidor marca em triagem uma vez; a data é a do servidor", async () => {
+      await semearProtocolo();
+      await assertSucceeds(updateDoc(doc(olga(), P(), NUM), { triagemEm: serverTimestamp() }));
+      await assertFails(updateDoc(doc(olga(), P(), NUM), { triagemEm: serverTimestamp() }));
+    });
+    test("data do aparelho, outros papéis e protocolo já respondido são recusados", async () => {
+      await semearProtocolo();
+      await assertFails(updateDoc(doc(olga(), P(), NUM), { triagemEm: Timestamp.fromMillis(Date.now() - DIA) }));
+      await assertFails(updateDoc(doc(sam(), P(), NUM), { triagemEm: serverTimestamp() }));
+      await assertFails(updateDoc(doc(ana(), P(), NUM), { triagemEm: serverTimestamp() }));
+      await assertFails(updateDoc(doc(adm(), P(), NUM), { triagemEm: serverTimestamp() }));
+      await env.clearFirestore(); await semearBase(); await semearProtocolo(respondido);
+      await assertFails(updateDoc(doc(olga(), P(), NUM), { triagemEm: serverTimestamp() }));
+    });
+  });
+
+  describe("aguardando informações", () => {
+    test("o servidor da secretaria pede informações, com a mensagem, e o prazo fica suspenso", async () => {
+      await semearProtocolo();
+      await assertSucceeds(pedirInfo(sam()).commit());
+    });
+    test("só 2 pedidos; não vale duas vezes seguidas; só servidor da secretaria; data do servidor", async () => {
+      await semearProtocolo();
+      await assertFails(pedirInfo(sol()).commit());
+      await assertFails(pedirInfo(ana()).commit());
+      await assertFails(pedirInfo(sam(), { aguardandoDesde: Timestamp.fromMillis(Date.now() + DIA) }).commit());
+      await assertFails(pedirInfo(sam(), {}, 2).commit());
+      await assertFails(pedirInfo(sam(), { pedidosInfo: 5 }).commit());
+      await assertSucceeds(pedirInfo(sam()).commit());
+      await assertFails(updateDoc(doc(sam(), P(), NUM), { aguardandoDesde: serverTimestamp(), pedidosInfo: 2, ultimaMsgPor: "servidor" }));
+    });
+    test("depois da 1ª resposta não se pede informação (o prazo já foi cumprido)", async () => {
+      await semearProtocolo(respondido);
+      await assertFails(updateDoc(doc(sam(), P(), NUM), { aguardandoDesde: serverTimestamp(), pedidosInfo: 1, ultimaMsgPor: "servidor" }));
+    });
+    test("o cidadão responde, o pedido é encerrado e os dias de espera (até 20) entram no prazo", async () => {
+      await semearProtocolo(aguardando);
+      await assertSucceeds(responderPedido(ana(), 6).commit());
+      const p = (await getDoc(doc(ana(), P(), NUM))).data()!;
+      if (p.aguardandoDesde !== undefined || p.suspensoDias !== 6) throw new Error("o pedido deveria estar encerrado com 6 dias");
+    });
+    test("não dá para suspender por mais de 20 dias, nem diminuir o que já foi somado, nem responder sem registrar o envio", async () => {
+      await semearProtocolo({ ...aguardando, suspensoDias: 5 });
+      await assertFails(responderPedido(ana(), 26).commit());
+      await assertFails(responderPedido(ana(), 4).commit());
+      await assertFails(responderPedido(ana(), 10, { sem: true }).commit());
+      await assertSucceeds(responderPedido(ana(), 25).commit());
+    });
+    test("outro cidadão e a equipe não encerram o pedido pelo cidadão", async () => {
+      await semearProtocolo(aguardando);
+      await assertFails(updateDoc(doc(beto(), P(), NUM), { ultimaMsgPor: "cidadao", aguardandoDesde: deleteField(), suspensoDias: 0 }));
+      await assertFails(updateDoc(doc(sam(), P(), NUM), { aguardandoDesde: deleteField(), suspensoDias: 0 }));
+    });
+    test("quando o servidor responde de vez, o 'aguardando' é encerrado e a conversa segue normal", async () => {
+      await semearProtocolo(aguardando);
+      const db = sam();
+      const b = writeBatch(db);
+      const m = msgServidor(db, "01");
+      b.set(m.ref, { ...m.dados, texto: "Resolvido." });
+      b.update(doc(db, P(), NUM), { status: "respondido", ultimaMsgPor: "servidor", respondidoEm: serverTimestamp(), aguardandoDesde: deleteField() });
+      await assertSucceeds(b.commit());
+      // sem apagar o marcador, a resposta é recusada (não deixa estado antigo para trás)
+      await env.clearFirestore(); await semearBase(); await semearProtocolo(aguardando);
+      await assertFails(respostaServidor(sam()).commit());
+    });
+    test("depois que já tinha respondido, o cidadão complementa normalmente", async () => {
+      await semearProtocolo({ ...respondido, suspensoDias: 3 });
+      const b = writeBatch(ana());
+      contar(b, ana(), "ana", `${NUM}/m01`);
+      b.set(doc(ana(), P(), NUM, "mensagens", "m01"), { de: "cidadao", autorUid: "ana", texto: "Obrigada, mas ainda falta.", anexos: [], criadoEm: serverTimestamp() });
+      b.update(doc(ana(), P(), NUM), { ultimaMsgPor: "cidadao" });
+      await assertSucceeds(b.commit());
+    });
+  });
+
+  describe("reaberto (cidadão)", () => {
+    const reabrir = (db: Db, o: { uid?: string; sem?: boolean; extra?: Record<string, unknown>; msg?: boolean } = {}) => {
+      const uid = o.uid ?? "ana";
+      const b = writeBatch(db);
+      if (!o.sem) contar(b, db, uid, `${NUM}/m02`);
+      if (o.msg !== false) b.set(doc(db, P(), NUM, "mensagens", "m02"), { de: "cidadao", autorUid: uid, texto: "O problema voltou.", anexos: [], criadoEm: serverTimestamp() });
+      b.update(doc(db, P(), NUM), { status: "aberto", reabertoEm: serverTimestamp(), ultimaMsgPor: "cidadao", ...(o.extra ?? {}) });
+      return b;
+    };
+    test("o autor reabre um atendimento concluído há pouco, com uma mensagem", async () => {
+      await semearProtocolo(concluidoHa(5));
+      await assertSucceeds(reabrir(ana()).commit());
+      const p = (await getDoc(doc(ana(), P(), NUM))).data()!;
+      if (p.status !== "aberto" || !p.reabertoEm) throw new Error("deveria estar reaberto");
+    });
+    test("depois de reaberto, a secretaria responde e o cidadão conclui de novo; mas só reabre uma vez", async () => {
+      await semearProtocolo(concluidoHa(5));
+      await assertSucceeds(reabrir(ana()).commit());
+      const r = writeBatch(sam());
+      r.set(doc(sam(), P(), NUM, "mensagens", "m03"), { de: "servidor", autorUid: "sam", texto: "Voltamos a resolver.", anexos: [], criadoEm: serverTimestamp() });
+      r.update(doc(sam(), P(), NUM), { status: "respondido", ultimaMsgPor: "servidor", respondidoEm: serverTimestamp() });
+      await assertSucceeds(r.commit());
+      await assertSucceeds(updateDoc(doc(ana(), P(), NUM), { status: "concluido", concluidoEm: serverTimestamp() }));
+      await assertFails(reabrir(ana()).commit());
+    });
+    test("não reabre depois de 30 dias, depois que a conversa foi apagada, nem protocolo alheio ou ainda em andamento", async () => {
+      await semearProtocolo(concluidoHa(31));
+      await assertFails(reabrir(ana()).commit());
+      await env.clearFirestore(); await semearBase(); await semearProtocolo({ ...concluidoHa(5), apagada: true });
+      await assertFails(reabrir(ana()).commit());
+      await env.clearFirestore(); await semearBase(); await semearProtocolo(concluidoHa(5));
+      await assertFails(reabrir(beto(), { uid: "beto" }).commit());
+      await assertFails(reabrir(sam()).commit());
+      await env.clearFirestore(); await semearBase(); await semearProtocolo(respondido);
+      await assertFails(reabrir(ana()).commit());
+    });
+    test("reabrir exige registrar o envio e a data é a do servidor", async () => {
+      await semearProtocolo(concluidoHa(5));
+      await assertFails(reabrir(ana(), { sem: true }).commit());
+      await assertFails(reabrir(ana(), { extra: { reabertoEm: Timestamp.fromMillis(Date.now() + DIA) } }).commit());
+      await assertFails(reabrir(ana(), { extra: { respondidoEm: serverTimestamp() } }).commit());
+    });
+    test("a mensagem do cidadão em protocolo concluído, sem reabrir, é recusada", async () => {
+      await semearProtocolo(concluidoHa(5));
+      const b = writeBatch(ana());
+      contar(b, ana(), "ana", `${NUM}/m02`);
+      b.set(doc(ana(), P(), NUM, "mensagens", "m02"), { de: "cidadao", autorUid: "ana", texto: "Posso escrever?", anexos: [], criadoEm: serverTimestamp() });
+      await assertFails(b.commit());
+    });
+  });
+
+  describe("ficha pública acompanha os novos campos", () => {
+    test("cópia fiel com 'aguardandoDesde' e 'suspensoDias' é aceita; valor falso é recusado", async () => {
+      await semearProtocolo({ aguardandoDesde: Timestamp.now(), pedidosInfo: 1, suspensoDias: 4, ultimaMsgPor: "servidor" });
+      const p = (await getDoc(doc(ana(), P(), NUM))).data()!;
+      const base = { status: p.status, secretariaNome: p.secretariaNome, criadoEm: p.criadoEm };
+      await assertSucceeds(setDoc(doc(ana(), "municipios/a/consulta", NUM), { ...base, aguardandoDesde: p.aguardandoDesde, suspensoDias: 4 }));
+      await assertFails(setDoc(doc(ana(), "municipios/a/consulta", NUM), { ...base, aguardandoDesde: p.aguardandoDesde, suspensoDias: 0 }));
+      await assertFails(setDoc(doc(ana(), "municipios/a/consulta", NUM), { ...base }));
+    });
+  });
+});
+
+// =====================================================================
+describe("19. Pedido de acesso à informação (LAI): 20 dias + 10 e recurso", () => {
+  const P = () => "municipios/a/protocolos";
+  const N4 = "OUV-2026-LAI00001";
+  const prorrogar = (db: Db, nome = "Sam") => {
+    const b = writeBatch(db);
+    b.update(doc(db, P(), NUM), { prorrogadoEm: serverTimestamp(), prorrogacaoMotivo: "Documentos em arquivo externo.", prorrogacaoPor: nome });
+    b.set(doc(collection(db, "municipios/a/notificacoes")), { uid: "ana", protocoloId: NUM, tipo: "prorrogacao", mensagem: "Prazo prorrogado.", criadoEm: serverTimestamp(), expiraEm: Timestamp.fromMillis(Date.now() + 30 * DIA) });
+    return b;
+  };
+  const recurso = (db: Db, o: { uid?: string; extra?: Record<string, unknown> } = {}) => {
+    const uid = o.uid ?? "ana";
+    const b = writeBatch(db);
+    contar(b, db, uid, `${NUM}/m02`);
+    b.set(doc(db, P(), NUM, "mensagens", "m02"), { de: "cidadao", autorUid: uid, texto: "A resposta ficou incompleta.", anexos: [], criadoEm: serverTimestamp() });
+    b.update(doc(db, P(), NUM), { status: "aberto", reabertoEm: serverTimestamp(), ultimaMsgPor: "cidadao", ...(o.extra ?? {}) });
+    return b;
+  };
+  const respondidoHa = (dias: number) => ({ ...respondido, respondidoEm: Timestamp.fromMillis(Date.now() - dias * DIA) });
+
+  test("o cidadão registra um pedido de acesso à informação; a ficha pública marca 'lai' e não aceita marcar o que não é", async () => {
+    await assertSucceeds(novoProtocolo(ana(), N4, { tipo: "lai", consulta: { status: "aberto", secretariaNome: "Saúde", criadoEm: serverTimestamp(), lai: true } }).commit());
+    await assertFails(novoProtocolo(ana(), "OUV-2026-LAI00002", { tipo: "lai", consulta: { status: "aberto", secretariaNome: "Saúde", criadoEm: serverTimestamp() } }).commit());
+    await assertFails(novoProtocolo(ana(), "OUV-2026-LAI00003", { tipo: "reclamacao", consulta: { status: "aberto", secretariaNome: "Saúde", criadoEm: serverTimestamp(), lai: true } }).commit());
+    await assertFails(novoProtocolo(ana(), "OUV-2026-LAI00004", { tipo: "lei-inventada" }).commit());
+  });
+  test("a prorrogação do LAI só vale nos primeiros 20 dias; a de manifestação comum, nos 30", async () => {
+    await semearProtocolo({ tipo: "lai", criadoEm: Timestamp.fromMillis(Date.now() - 15 * DIA) });
+    await assertSucceeds(prorrogar(sam()).commit());
+    await env.clearFirestore(); await semearBase();
+    await semearProtocolo({ tipo: "lai", criadoEm: Timestamp.fromMillis(Date.now() - 21 * DIA) });
+    await assertFails(prorrogar(sam()).commit());
+    await env.clearFirestore(); await semearBase();
+    await semearProtocolo({ criadoEm: Timestamp.fromMillis(Date.now() - 21 * DIA) });
+    await assertSucceeds(prorrogar(sam()).commit());
+  });
+  test("recurso: o autor apresenta até 10 dias depois da resposta, uma única vez", async () => {
+    await semearProtocolo({ tipo: "lai", ...respondidoHa(4) });
+    await assertSucceeds(recurso(ana()).commit());
+    const p = (await getDoc(doc(ana(), P(), NUM))).data()!;
+    if (p.status !== "aberto" || !p.reabertoEm) throw new Error("o recurso deveria reabrir o pedido");
+    // depois de decidido de novo, não cabe outro recurso
+    const r = writeBatch(sam());
+    r.set(doc(sam(), P(), NUM, "mensagens", "m03"), { de: "servidor", autorUid: "sam", texto: "Recurso decidido.", anexos: [], criadoEm: serverTimestamp() });
+    r.update(doc(sam(), P(), NUM), { status: "respondido", ultimaMsgPor: "servidor", respondidoEm: serverTimestamp() });
+    await assertSucceeds(r.commit());
+    await assertFails(recurso(ana()).commit());
+  });
+  test("recurso fora do prazo de 10 dias, de outra pessoa ou sem o registro do envio é recusado", async () => {
+    await semearProtocolo({ tipo: "lai", ...respondidoHa(11) });
+    await assertFails(recurso(ana()).commit());
+    await env.clearFirestore(); await semearBase(); await semearProtocolo({ tipo: "lai", ...respondidoHa(2) });
+    await assertFails(recurso(beto(), { uid: "beto" }).commit());
+    await assertFails(recurso(ana(), { extra: { reabertoEm: Timestamp.fromMillis(Date.now() + DIA) } }).commit());
+  });
+  test("recurso também cabe logo depois de concluído (até 10 dias) e não depois", async () => {
+    await semearProtocolo({ tipo: "lai", ...concluidoHa(3) });
+    await assertSucceeds(recurso(ana()).commit());
+    await env.clearFirestore(); await semearBase(); await semearProtocolo({ tipo: "lai", ...concluidoHa(12) });
+    await assertFails(recurso(ana()).commit());
+  });
+  test("manifestação comum não ganha recurso logo após a 1ª resposta (só reabre depois de concluída)", async () => {
+    await semearProtocolo(respondidoHa(2));
+    await assertFails(recurso(ana()).commit());
+  });
+});
+
+// =====================================================================
 // Ainda NÃO existem no sistema (Fases 2 e 3 do plano). Ficam aqui como lembrete obrigatório:
 describe("Pendentes (Fases 2 e 3)", () => {
-  test.todo("19. Pedidos de acesso à informação (LAI) e recursos, separados da Ouvidoria");
+  // nada pendente: LAI e recursos foram feitos (seção 19)
+  test("lista de pendências vazia", () => {});
 });

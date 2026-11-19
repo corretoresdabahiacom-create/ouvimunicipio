@@ -1,5 +1,5 @@
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-import { db } from "./firebase";
+import { serverTimestamp, setDoc } from "firebase/firestore";
+
 import { docM } from "./municipio";
 import { TIPOS, type Contagem, type Estatisticas, type Protocolo } from "./types";
 import { nivelPrazo, prazoFinal } from "../components/ui";

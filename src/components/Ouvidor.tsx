@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
+import { getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { AlertTriangle, BellRing, FileText, RefreshCw, Search, Send } from "lucide-react";
 import { db } from "../lib/firebase";
 import { colM, docM } from "../lib/municipio";
@@ -15,7 +15,7 @@ import { sincronizarFicha } from "../lib/consulta";
 
 const LIMITE_LEITURA = 1000; // protege a cota gratuita do Firestore
 
-function usarTodos() {
+function useTodos() {
   const [lista, setLista] = useState<Protocolo[] | null>(null);
   const [erro, setErro] = useState("");
   useEffect(() => onSnapshot(query(colM("protocolos"), orderBy("criadoEm", "desc"), limit(LIMITE_LEITURA)),
@@ -24,7 +24,7 @@ function usarTodos() {
   return { lista, erro };
 }
 
-function usarSecretarias() {
+function useSecretarias() {
   const [lista, setLista] = useState<Secretaria[]>([]);
   useEffect(() => onSnapshot(colM("secretarias"),
     (s) => setLista(s.docs.map((d) => ({ id: d.id, nome: String(d.data().nome), ativa: d.data().ativa === true }))
@@ -64,6 +64,14 @@ function Acoes({ p, secretarias }: { p: Protocolo; secretarias: Secretaria[] }) 
     } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
   }
 
+  async function triagem() {
+    setErro(""); setOk(""); setOcupado(true);
+    try {
+      await updateDoc(docM("protocolos", p.id), { triagemEm: serverTimestamp() });
+      setOk("Marcado como \"em triagem\": o cidadão e a secretaria veem que a Ouvidoria está analisando.");
+    } catch (err) { setErro(mensagemDeErro(err)); } finally { setOcupado(false); }
+  }
+
   async function cobrar() {
     setErro(""); setOk(""); setOcupado(true);
     try {
@@ -91,6 +99,7 @@ function Acoes({ p, secretarias }: { p: Protocolo; secretarias: Secretaria[] }) 
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5" /></label>
           <div className="flex flex-wrap gap-2">
             <Botao type="submit" carregando={ocupado}><Send className="size-4" aria-hidden /> Encaminhar</Botao>
+            {p.status === "aberto" && !p.triagemEm && <Botao type="button" variante="secundario" onClick={triagem} disabled={ocupado}>Marcar em triagem</Botao>}
             {p.status === "aberto" && <Botao type="button" variante="secundario" onClick={cobrar} disabled={ocupado}><BellRing className="size-4" aria-hidden /> Cobrar resposta</Botao>}
           </div>
         </form>
@@ -104,8 +113,8 @@ function Acoes({ p, secretarias }: { p: Protocolo; secretarias: Secretaria[] }) 
 // ---------- painel ----------
 export function PainelOuvidor() {
   const { perfil } = useAuth();
-  const { lista, erro } = usarTodos();
-  const secretarias = usarSecretarias();
+  const { lista, erro } = useTodos();
+  const secretarias = useSecretarias();
   const [sel, setSel] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [fSec, setFSec] = useState("");
@@ -196,7 +205,7 @@ export function PainelOuvidor() {
         const r = p.status === "aberto" ? rotuloPrazo(p) : null;
         return (
           <button key={p.id} onClick={() => setSel(p.id)} className="block w-full rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-brand">
-            <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs text-slate-600">{p.numero}</span><Selo status={p.status} /></div>
+            <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs text-slate-600">{p.numero}</span><Selo status={p.status} p={p} /></div>
             <p className="mt-1 font-semibold">{TIPOS[p.tipo] ?? "Manifestação"} · {p.secretariaNome}</p>
             <p className="text-sm text-slate-700">Enviado em {dataBR(p.criadoEm)}{p.encaminhamentos ? ` · encaminhado ${p.encaminhamentos}×` : ""}</p>
             {r && <p className={`mt-1 text-xs ${r.classe}`}>{r.texto}</p>}

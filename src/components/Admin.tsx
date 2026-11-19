@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, deleteDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { Pencil, Trash2 } from "lucide-react";
-import { db } from "../lib/firebase";
+
 import { colM, docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
@@ -20,6 +20,7 @@ function useColecao<T>(nome: string, mapear: (id: string, d: Record<string, unkn
   return { dados, erro };
 }
 
+const CONTATO_SUPERADMIN: string = (import.meta.env.VITE_CONTATO_SUPERADMIN as string | undefined) ?? "";
 const PAPEL_ROTULO = { admin: "Administrador", secretario: "Secretário(a)", assessor: "Assessor(a)", ouvidor: "Ouvidor(a) geral", prefeito: "Prefeito(a) – só números" } as const;
 // só secretário e assessor pertencem a uma secretaria
 const precisaSecretaria = (papel: MembroEquipe["papel"]) => papel === "secretario" || papel === "assessor";
@@ -56,6 +57,10 @@ export function PainelAdmin() {
         : aba === "usuarios" ? <Usuarios auditar={auditar} />
         : aba === "aparencia" ? <Aparencia auditar={auditar} />
         : <Publicidade auditar={auditar} />}
+      <p className="text-xs text-slate-600">
+        Excluir o município, ou trocar o administrador principal, só o responsável pelo sistema (superadmin) faz.
+        {CONTATO_SUPERADMIN ? <> Envie o pedido para <a className="underline" href={`mailto:${CONTATO_SUPERADMIN}`}>{CONTATO_SUPERADMIN}</a>.</> : " Envie o pedido por e-mail a ele."}
+      </p>
     </div>
   );
 }

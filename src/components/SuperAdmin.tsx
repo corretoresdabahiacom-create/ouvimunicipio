@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { apagarMunicipioDoR2 } from "../lib/midiaR2";
 import { collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/useAuth";
@@ -7,6 +8,7 @@ import { PLANOS, type PlanoMunicipio } from "../lib/types";
 import { Aviso, Botao, BotaoVoltar, Campo, Cartao, Carregando } from "./ui";
 import { auth } from "../lib/firebase";
 import { digitandoEndereco, paraEndereco } from "../lib/endereco";
+import { AdminsDoMunicipio } from "./SuperAdminAdmins";
 
 interface Mun { id: string; nome: string; cidade: string; uf: string; ativo: boolean; plano: PlanoMunicipio; excluido: boolean }
 
@@ -29,6 +31,7 @@ export function PainelSuperAdmin() {
   const [adm, setAdm] = useState({ mun: "", email: "", nome: "" });
   const [editando, setEditando] = useState<{ id: string; nome: string; cidade: string; uf: string } | null>(null);
   const [excluindo, setExcluindo] = useState<{ id: string; confirma: string } | null>(null);
+  const [verAdmins, setVerAdmins] = useState("");
 
   useEffect(() => onSnapshot(collection(db, "municipios"),
     (s) => setLista(s.docs.map((d) => ({ id: d.id, nome: String(d.get("nome")), ativo: d.get("ativo") === true, plano: (d.get("plano") ?? "basico") as PlanoMunicipio, cidade: String(d.get("cidade") ?? ""), uf: String(d.get("uf") ?? ""), excluido: d.get("excluido") === true }))
@@ -155,10 +158,12 @@ export function PainelSuperAdmin() {
                   <select aria-label={`Plano de ${m.nome}`} value={m.plano} onChange={(e) => void alterar(m, { plano: e.target.value as PlanoMunicipio })} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm">
                     {Object.entries(PLANOS).map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select>
                   <Botao variante="secundario" onClick={() => { setEditando({ id: m.id, nome: m.nome, cidade: m.cidade, uf: m.uf }); setExcluindo(null); }}>Editar</Botao>
+                  <Botao variante="secundario" onClick={() => setVerAdmins(verAdmins === m.id ? "" : m.id)}>Administradores</Botao>
                   <Botao variante="secundario" onClick={() => void alterar(m, { ativo: !m.ativo })}>{m.ativo ? "Suspender" : "Reativar"}</Botao>
                   <Botao variante="link" onClick={() => { setExcluindo({ id: m.id, confirma: "" }); setEditando(null); }}>Excluir</Botao>
                 </div>
               </div>
+              {verAdmins === m.id && <AdminsDoMunicipio mun={m.id} nomeMun={m.nome} />}
               {editando?.id === m.id && (
                 <form onSubmit={salvarNome} className="space-y-3 rounded-lg bg-slate-50 p-3">
                   <Campo rotulo="Nome oficial" value={editando.nome} onChange={(e) => setEditando({ ...editando, nome: e.target.value })} maxLength={120} required />
@@ -191,7 +196,21 @@ export function PainelSuperAdmin() {
           ))}
         </ul>
         {lista.some((m) => m.excluido) && (
-          <p className="mt-2 text-xs text-slate-600">Excluídos (endereços bloqueados): {lista.filter((m) => m.excluido).map((m) => `/${m.id}`).join(", ")}</p>
+          <div className="mt-2 text-xs text-slate-600">
+            <p>Excluídos (endereços bloqueados):</p>
+            <ul className="mt-1 space-y-1">
+              {lista.filter((m) => m.excluido).map((m) => (
+                <li key={m.id} className="flex flex-wrap items-center gap-2">
+                  <span>/{m.id}</span>
+                  <Botao variante="link" onClick={async () => {
+                    if (!window.confirm(`Apagar definitivamente os arquivos (fotos/vídeos) de /${m.id} no R2? Não dá para desfazer.`)) return;
+                    try { const n = await apagarMunicipioDoR2(m.id); setOk(`Arquivos de /${m.id} apagados do R2: ${n}.`); }
+                    catch (err) { setErro(err instanceof Error ? err.message : "Não foi possível apagar os arquivos."); }
+                  }}>Apagar arquivos (R2)</Botao>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </Cartao>
     </main>

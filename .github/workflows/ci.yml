@@ -16,6 +16,9 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run lint
+      - run: npm run lint:codigo
+      - run: npm run lint:funcoes
+      - run: npm test
       - run: npm run build
 
   regras:

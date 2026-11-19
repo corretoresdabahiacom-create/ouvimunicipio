@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BarChart3, Bell, FilePlus2, Inbox, LogOut, QrCode, Settings, UserRound } from "lucide-react";
 import { AuthProvider, useAuth } from "./lib/useAuth";
 import { TelaAuth, TelaConfirmarEmail } from "./components/Auth";
-import { NovaMensagem, MeusProtocolos, PainelAvisos, usarNotificacoes } from "./components/Cidadao";
+import { NovaMensagem, MeusProtocolos, PainelAvisos, useNotificacoes } from "./components/Cidadao";
 // Telas pesadas só são baixadas quando abertas (o app inicial fica mais leve no celular).
 const PainelSecretaria = lazy(() => import("./components/Secretaria").then((m) => ({ default: m.PainelSecretaria })));
 const PainelOuvidor = lazy(() => import("./components/Ouvidor").then((m) => ({ default: m.PainelOuvidor })));
@@ -49,7 +49,7 @@ function Shell() {
     addEventListener("popstate", aoVoltar);
     return () => removeEventListener("popstate", aoVoltar);
   }, []);
-  const { visiveis } = usarNotificacoes();
+  const { visiveis } = useNotificacoes();
 
   const itens: { id: Aba; rotulo: string; Icone: typeof Bell; mostrar: boolean; badge?: number }[] = [
     { id: "nova", rotulo: "Nova", Icone: FilePlus2, mostrar: !interno },

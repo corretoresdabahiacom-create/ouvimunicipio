@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
-import { db } from "./firebase";
+import { getDocs, onSnapshot, query, where } from "firebase/firestore";
+
 import { colM, docM, idMunicipio } from "./municipio";
 
 export interface SiteConfig { nome: string; cor: string; logo: string; contato: string; transparencia: boolean }

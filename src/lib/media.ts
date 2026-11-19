@@ -14,6 +14,13 @@ export function tipoDe(file: File): "imagem" | "video" | null {
   return null;
 }
 
+// ---------- conferência pelo CONTEÚDO do arquivo (tipoArquivo.ts, também usado pelo servidor) ----------
+import { identificarPelosBytes, type Conteudo } from "./tipoArquivo";
+export { identificarPelosBytes, type Conteudo };
+export async function identificar(file: Blob): Promise<Conteudo | null> {
+  try { return identificarPelosBytes(new Uint8Array(await file.slice(0, 16).arrayBuffer())); } catch { return null; }
+}
+
 export async function comprimirImagem(file: File, maxLado = 1600, alvoBytes = 700_000): Promise<Blob> {
   const bmp = await createImageBitmap(file).catch(() => null);
   if (!bmp) throw new Error("Não foi possível ler a imagem.");

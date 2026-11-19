@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
-import { deleteField, deleteDoc, doc, getDocs, collection, query, updateDoc, where } from "firebase/firestore";
+import { deleteField, deleteDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
-import { auth, db } from "../lib/firebase";
+import { auth } from "../lib/firebase";
 import { colM, docM } from "../lib/municipio";
 import { LinkLegal } from "./Legal";
 import { useAuth } from "../lib/useAuth";

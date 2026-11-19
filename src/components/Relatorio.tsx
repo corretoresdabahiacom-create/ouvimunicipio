@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { FileText } from "lucide-react";
+import { FileSpreadsheet, FileText } from "lucide-react";
 import { useSite } from "../lib/useConfig";
 import { calcularEstatisticas } from "../lib/estatisticas";
+import { relatorioCsv } from "../lib/relatorioCsv";
 import { TIPOS, type Protocolo } from "../lib/types";
 import { Aviso, Botao, Cartao } from "./ui";
 
@@ -34,6 +35,20 @@ export function RelatorioGestao({ lista, limiteAtingido, responsavel }: { lista:
     const d = p.criadoEm?.toDate?.();
     return d && d.getFullYear() === ano && (!mes || d.getMonth() + 1 === mes);
   }), [lista, ano, mes]);
+
+  function baixarCsv() {
+    setErro("");
+    const periodo = mes ? `${MESES[mes - 1]} de ${ano}` : `Ano de ${ano}`;
+    const csv = relatorioCsv(calcularEstatisticas(doPeriodo), site.nome, periodo, {
+      prorrogadas: doPeriodo.filter((p) => p.prorrogadoEm).length,
+      encaminhadas: doPeriodo.filter((p) => (p.encaminhamentos ?? 0) > 0).length,
+    });
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `relatorio-ouvidoria-${ano}${mes ? `-${String(mes).padStart(2, "0")}` : ""}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
   function gerar() {
     setErro("");
@@ -113,7 +128,10 @@ Não contém nomes, contatos nem o conteúdo das mensagens dos cidadãos.${limit
         <textarea value={providencias} onChange={(e) => setProvidencias(e.target.value)} rows={4} maxLength={3000} className="w-full rounded-lg border border-slate-300 px-3 py-2.5" /></label>
       {limiteAtingido && <Aviso tipo="info">O painel carrega os 1.000 protocolos mais recentes; períodos mais antigos podem ficar incompletos.</Aviso>}
       {erro && <Aviso>{erro}</Aviso>}
-      <Botao onClick={gerar}><FileText className="size-4" aria-hidden /> Gerar relatório</Botao>
+      <div className="flex flex-wrap gap-2">
+        <Botao onClick={gerar}><FileText className="size-4" aria-hidden /> Gerar relatório</Botao>
+        <Botao variante="secundario" onClick={baixarCsv}><FileSpreadsheet className="size-4" aria-hidden /> Baixar planilha (CSV)</Botao>
+      </div>
       <p className="text-xs text-slate-600">Os textos acima não são salvos: copie-os antes de sair, se quiser reaproveitar.</p>
     </Cartao>
   );

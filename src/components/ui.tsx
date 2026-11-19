@@ -1,6 +1,6 @@
 import { type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from "react";
 import { Loader2, AlertCircle, CheckCircle2, ArrowLeft } from "lucide-react";
-import { PRAZO_DIAS, PRAZO_PRORROGACAO_DIAS, type Protocolo } from "../lib/types";
+import { LAI, MAX_SUSPENSAO_DIAS, prazosDoTipo, type Protocolo } from "../lib/types";
 
 export function Botao({ carregando, variante = "primario", className = "", children, ...p }:
   ButtonHTMLAttributes<HTMLButtonElement> & { carregando?: boolean; variante?: "primario" | "secundario" | "perigo" | "link" }) {
@@ -46,11 +46,19 @@ export function Carregando({ texto = "Carregando…" }: { texto?: string }) {
   return <div className="flex items-center justify-center gap-2 p-8 text-slate-600"><Loader2 className="size-5 animate-spin" aria-hidden />{texto}</div>;
 }
 
-export function Selo({ status }: { status: Protocolo["status"] }) {
-  if (status === "concluido") return <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-800">Concluído</span>;
-  return status === "respondido"
-    ? <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">Respondido</span>
-    : <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">Em análise</span>;
+export type EtapaVisual = { texto: string; classe: string };
+// Rótulo da situação. "Aberto" se desdobra em: aguardando informações, reaberto, em triagem ou em análise.
+export function etapaRotulo(status: Protocolo["status"], p?: Partial<Protocolo>): EtapaVisual {
+  if (status === "concluido") return { texto: "Concluído", classe: "bg-slate-200 text-slate-800" };
+  if (status === "respondido") return { texto: "Respondido", classe: "bg-emerald-100 text-emerald-800" };
+  if (p?.aguardandoDesde) return { texto: "Aguardando informações", classe: "bg-blue-100 text-blue-900" };
+  if (p?.reabertoEm) return { texto: "Reaberto", classe: "bg-violet-100 text-violet-900" };
+  if (p?.triagemEm) return { texto: "Em triagem", classe: "bg-sky-100 text-sky-900" };
+  return { texto: "Em análise", classe: "bg-amber-100 text-amber-900" };
+}
+export function Selo({ status, p }: { status: Protocolo["status"]; p?: Partial<Protocolo> }) {
+  const e = etapaRotulo(status, p);
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${e.classe}`}>{e.texto}</span>;
 }
 
 export function dataBR(t: { toDate?: () => Date } | null | undefined): string {
@@ -59,10 +67,23 @@ export function dataBR(t: { toDate?: () => Date } | null | undefined): string {
 
 const DIA_MS = 86_400_000;
 
-// Prazo da manifestação: 30 dias, mais 30 se a secretaria prorrogou (uma única vez, com justificativa).
-export function prazoFinal(p: Protocolo): Date | null {
-  const d = p.criadoEm?.toDate?.();
-  return d ? new Date(d.getTime() + (PRAZO_DIAS + (p.prorrogadoEm ? PRAZO_PRORROGACAO_DIAS : 0)) * DIA_MS) : null;
+// Dias de espera pelo cidadão que entram no prazo: os já somados (suspensoDias) + a espera em andamento (no máximo 20).
+export function diasSuspensos(p: Protocolo, agora = Date.now()): number {
+  let d = p.suspensoDias ?? 0;
+  const a = p.aguardandoDesde?.toDate?.();
+  if (a && p.status === "aberto") d += Math.min(MAX_SUSPENSAO_DIAS, Math.max(0, Math.ceil((agora - a.getTime()) / DIA_MS)));
+  return d;
+}
+
+// Prazo da manifestação: 30 dias a partir do envio (ou da reabertura), mais 30 se a secretaria prorrogou (uma única vez,
+// com justificativa) e mais os dias em que o prazo ficou suspenso à espera de informações do cidadão.
+export function prazoFinal(p: Protocolo, agora = Date.now()): Date | null {
+  const t = prazosDoTipo(p.tipo);
+  const recurso = p.tipo === "lai" && !!p.reabertoEm; // recurso de pedido de informação: a administração decide em 5 dias
+  const d = (p.reabertoEm ?? p.criadoEm)?.toDate?.();
+  if (!d) return null;
+  if (recurso) return new Date(d.getTime() + LAI.decisaoRecursoDias * DIA_MS);
+  return new Date(d.getTime() + (t.prazo + (p.prorrogadoEm ? t.prorrogacao : 0) + diasSuspensos(p, agora)) * DIA_MS);
 }
 
 export function diasRestantes(p: Protocolo): number | null {
@@ -73,7 +94,7 @@ export function diasRestantes(p: Protocolo): number | null {
 // Alertas de prazo: 10 dias, 5 dias, 2 dias, no dia do vencimento e depois de vencido.
 export type NivelPrazo = "ok" | "dez" | "cinco" | "dois" | "hoje" | "vencido";
 export function nivelPrazo(p: Protocolo, agora = Date.now()): NivelPrazo | null {
-  const f = prazoFinal(p);
+  const f = prazoFinal(p, agora);
   if (!f) return null;
   const ms = f.getTime() - agora;
   if (ms < 0) return "vencido";

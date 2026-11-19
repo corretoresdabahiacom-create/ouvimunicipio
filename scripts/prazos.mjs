@@ -2,18 +2,34 @@
 export const DIA = 86_400_000;
 export const PRAZO_DIAS = 30;
 export const PRORROGACAO_DIAS = 30;
+export const MAX_SUSPENSAO_DIAS = 20;
+// Pedido de acesso à informação (Lei 12.527/2011): 20 dias + 10; recurso decidido em 5 dias. Igual a src/lib/types.ts.
+export const LAI = { prazo: 20, prorrogacao: 10, decisaoRecursoDias: 5 };
+const prazosDoTipo = (tipo) => (tipo === "lai" ? { prazo: LAI.prazo, prorrogacao: LAI.prorrogacao } : { prazo: PRAZO_DIAS, prorrogacao: PRORROGACAO_DIAS });
 export const NIVEIS_ALERTA = ["vencido", "hoje", "dois", "cinco"]; // "dez" e "ok" não geram e-mail
-const TIPOS = { reclamacao: "Reclamação", denuncia: "Denúncia", solicitacao: "Solicitação", sugestao: "Sugestão", elogio: "Elogio", informacao: "Pedido de informação" };
+const TIPOS = { reclamacao: "Reclamação", denuncia: "Denúncia", solicitacao: "Solicitação", sugestao: "Sugestão", elogio: "Elogio", informacao: "Dúvida ou informação geral", lai: "Pedido de acesso à informação (LAI)" };
 
 const ms = (t) => (t == null ? null : typeof t === "number" ? t : t instanceof Date ? t.getTime() : t.toMillis());
 
-export function prazoFinal(p) {
-  const c = ms(p.criadoEm);
-  return c == null ? null : c + (PRAZO_DIAS + (p.prorrogadoEm ? PRORROGACAO_DIAS : 0)) * DIA;
+// Dias de espera pelo cidadão (pedido de informações) que entram no prazo: os já somados + a espera em andamento (no máximo 20).
+export function diasSuspensos(p, agora) {
+  let d = p.suspensoDias ?? 0;
+  const a = ms(p.aguardandoDesde);
+  if (a != null && p.status === "aberto") d += Math.min(MAX_SUSPENSAO_DIAS, Math.max(0, Math.ceil((agora - a) / DIA)));
+  return d;
+}
+
+// 30 dias do envio (ou da reabertura), +30 se prorrogado, + dias suspensos. Igual a src/components/ui.tsx.
+export function prazoFinal(p, agora = Date.now()) {
+  const c = ms(p.reabertoEm ?? p.criadoEm);
+  if (c == null) return null;
+  if (p.tipo === "lai" && p.reabertoEm) return c + LAI.decisaoRecursoDias * DIA; // recurso
+  const t = prazosDoTipo(p.tipo);
+  return c + (t.prazo + (p.prorrogadoEm ? t.prorrogacao : 0) + diasSuspensos(p, agora)) * DIA;
 }
 
 export function nivelPrazo(p, agora) {
-  const f = prazoFinal(p);
+  const f = prazoFinal(p, agora);
   if (f == null) return null;
   const r = f - agora;
   if (r < 0) return "vencido";
@@ -26,7 +42,7 @@ export function nivelPrazo(p, agora) {
 
 export function situacao(p, agora) {
   const n = nivelPrazo(p, agora);
-  const dias = Math.ceil((prazoFinal(p) - agora) / DIA);
+  const dias = Math.ceil((prazoFinal(p, agora) - agora) / DIA);
   if (n === "vencido") return `VENCIDO há ${Math.max(1, -dias + 1)} dia(s)`;
   if (n === "hoje") return "vence HOJE";
   return `vence em ${dias} dia(s)`;
@@ -37,14 +53,14 @@ export function situacao(p, agora) {
 export function montarAlertas(protocolos, equipe, agora) {
   const comAlerta = protocolos
     .filter((p) => p.status === "aberto" && NIVEIS_ALERTA.includes(nivelPrazo(p, agora)))
-    .sort((a, b) => prazoFinal(a) - prazoFinal(b));
+    .sort((a, b) => prazoFinal(a, agora) - prazoFinal(b, agora));
   const porSecretaria = new Map();
   for (const p of comAlerta) {
     if (!porSecretaria.has(p.secretariaId)) porSecretaria.set(p.secretariaId, []);
     porSecretaria.get(p.secretariaId).push(p);
   }
   const linha = (p) => ({ numero: p.numero, tipo: TIPOS[p.tipo] ?? "Manifestação", secretaria: p.secretariaNome,
-    prazo: new Date(prazoFinal(p)).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+    prazo: new Date(prazoFinal(p, agora)).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
     situacao: situacao(p, agora), vencido: nivelPrazo(p, agora) === "vencido" });
 
   const envios = [];

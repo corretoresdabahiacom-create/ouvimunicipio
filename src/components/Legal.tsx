@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { serverTimestamp, updateDoc } from "firebase/firestore";
+
 import { docM } from "../lib/municipio";
 import { useAuth } from "../lib/useAuth";
 import { mensagemDeErro } from "../lib/erros";
 import { X } from "lucide-react";
 import { useSite } from "../lib/useConfig";
-import { VERSAO_TERMOS } from "../lib/types";
+import { ANOS_RETENCAO, VERSAO_TERMOS } from "../lib/types";
 import { Aviso, Botao, Cartao } from "./ui";
 
 /** Textos-modelo. A prefeitura deve revisá-los com a assessoria jurídica e o encarregado de dados (LGPD). */
@@ -19,7 +19,7 @@ export function Termos() {
       <ol className="list-decimal space-y-2 pl-5">
         <li><b>Cadastro.</b> Informe dados verdadeiros e confirme seu e-mail. A senha é pessoal; não a compartilhe. Você é responsável pelo que for feito com a sua conta.</li>
         <li><b>Uso adequado.</b> Não envie conteúdo ofensivo, ilegal ou falso, nem dados pessoais de terceiros sem necessidade. Fotos e vídeos devem ter relação com a manifestação.</li>
-        <li><b>Prazos.</b> Cada protocolo recebe um número e tem prazo de 30 dias para a primeira resposta da secretaria, que pode ser prorrogado <b>uma única vez</b>, por mais 30 dias e com justificativa, nos termos da Lei nº 13.460/2017. A Ouvidoria pode encaminhar o protocolo a outra secretaria quando o assunto for de outro setor; você vê esse histórico no protocolo.</li>
+        <li><b>Prazos.</b> Cada protocolo recebe um número e tem prazo de 30 dias para a primeira resposta da secretaria, que pode ser prorrogado <b>uma única vez</b>, por mais 30 dias e com justificativa, nos termos da Lei nº 13.460/2017. Os <b>pedidos de acesso à informação</b> (Lei nº 12.527/2011) têm prazo de <b>20 dias</b>, prorrogável por mais 10 com justificativa, e permitem <b>recurso</b> em até 10 dias. Se a secretaria pedir informações para entender o seu pedido, o prazo fica suspenso até você responder (no máximo 20 dias). A Ouvidoria pode encaminhar o protocolo a outra secretaria quando o assunto for de outro setor; você vê esse histórico no protocolo.</li>
         <li><b>Conversa.</b> Depois da primeira resposta a conversa continua no protocolo. Quando o atendimento é concluído, a conversa e os anexos são apagados 30 dias depois.</li>
         <li><b>Avisos.</b> O aplicativo avisa quando há resposta. Os avisos de resposta somem em 24 horas; o conteúdo permanece no protocolo.</li>
         <li><b>Suspensão.</b> A prefeitura pode bloquear contas usadas de forma abusiva ou fraudulenta.</li>
@@ -42,7 +42,7 @@ export function Politica() {
         <li><b>Para quê.</b> Atender sua manifestação e prestar o serviço público de ouvidoria (LGPD, art. 7º, III e Lei nº 13.460/2017). O telefone e o envio de avisos por e-mail dependem do seu consentimento.</li>
         <li><b>Quem pode ver.</b> O conteúdo das mensagens e anexos é visível para <b>você, a secretaria responsável</b> e a <b>Ouvidoria geral do município</b>, que lê para encaminhar ao setor certo e cobrar respostas (ela não responde em nome da secretaria). O administrador do sistema vê a lista de usuários (nome, e-mail e telefone) para gerenciar contas e dados estatísticos do protocolo (número, tipo, secretaria, datas e nota), mas <b>não lê as conversas</b>. O prefeito vê <b>apenas números</b> (totais, prazos e notas), sem nomes nem conteúdo.</li>
         <li><b>Fornecedores.</b> Usamos Google Firebase (login e banco de dados), Cloudflare (hospedagem) e um serviço de envio de e-mails. Esses dados podem ficar em servidores fora do Brasil, com as garantias previstas na LGPD.</li>
-        <li><b>Por quanto tempo.</b> Conversa e anexos: apagados 30 dias após a conclusão do atendimento. Dados do protocolo sem identificação (número, tipo, secretaria, datas e nota): mantidos para estatísticas e prestação de contas. Sua conta: até você pedir a exclusão.</li>
+        <li><b>Por quanto tempo.</b> Conversa e anexos: apagados 30 dias após a conclusão do atendimento. Dados do protocolo sem identificação (número, tipo, secretaria, datas e nota): mantidos para estatísticas e prestação de contas por até {ANOS_RETENCAO} anos após a conclusão, quando são apagados. Sua conta: até você pedir a exclusão.</li>
         <li><b>Seus direitos (art. 18).</b> Você pode acessar e corrigir seus dados em <i>Perfil</i>, pedir informações, revogar consentimentos e <b>excluir sua conta</b> a qualquer momento em <i>Perfil → Excluir minha conta</i>. A exclusão apaga nome, e-mail, telefone e login. Mensagens já enviadas continuam acessíveis apenas à secretaria e à Ouvidoria até 30 dias após a conclusão do protocolo, sem ligação com o seu nome.</li>
         <li><b>Segurança.</b> Conexão criptografada, e-mail confirmado, regras de acesso por pessoa, por secretaria e por município e bloqueio de contas. Nenhum sistema é totalmente imune; em caso de incidente relevante, a prefeitura comunicará conforme a lei.</li>
         <li><b>Dispositivo.</b> Guardamos no aparelho apenas o necessário para o funcionamento (login, cor e nome do município).</li>
